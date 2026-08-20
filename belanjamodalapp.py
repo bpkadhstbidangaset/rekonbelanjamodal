@@ -3,26 +3,23 @@ import pandas as pd
 import io
 import re
 
-st.set_page_config(page_title="Aplikasi Rekap & Pembanding Belanja Modal (SIPD)", layout="wide")
+st.set_page_config(page_title="Hasil Rekonsiliasi Belanja Modal", layout="wide")
 
-st.title("🏛️ Aplikasi Rekap & Pembanding Belanja Modal (SIPD)")
-st.write("Unggah file Realisasi LRA, Master RAK, dan Data Aplikasi Belanja Modal untuk membandingkan ketiganya secara otomatis.")
-
-st.sidebar.header("📁 Unggah File")
-file_lra = st.sidebar.file_uploader("1. File Realisasi LRA (Excel)", type=["xlsx", "xls"])
-file_rak = st.sidebar.file_uploader("2. File Master RAK Belanja Modal (Excel)", type=["xlsx", "xls"])
-file_app_bm = st.sidebar.file_uploader("3. File Data Aplikasi Belanja Modal (Excel)", type=["xlsx", "xls"])
+st.sidebar.header("Upload File Excel")
+file_rak = st.sidebar.file_uploader("1. RAK BELANJA MODAL.xlsx", type=["xlsx", "xls"])
+file_lra = st.sidebar.file_uploader("2. DATA REALISASI (LRA/SIPD).xlsx", type=["xlsx", "xls"])
+file_app_bm = st.sidebar.file_uploader("3. DATA APLIKASI BELANJA MODAL.xlsx", type=["xlsx", "xls"])
 
 def clean_kode_rekening(kode):
-    """Pembersih Kode Rekening"""
     if pd.isna(kode) or kode is None:
         return ""
     s = str(kode).replace('\xa0', '').replace("'", "").replace('"', '').strip()
     s = re.sub(r'\s+', '', s)
+    if s.lower() in ['nan', 'none', '0', ''] or not re.search(r'\d', s):
+        return ""
     return s
 
 def parse_indonesian_number(val):
-    """Konversi format angka/rupiah Indonesia ke Float"""
     if pd.isna(val) or val is None:
         return 0.0
     if isinstance(val, (int, float)):
@@ -32,8 +29,7 @@ def parse_indonesian_number(val):
     if not val_str or val_str.lower() in ['nan', 'none', '-', '']:
         return 0.0
 
-    # Ambil karakter angka, koma, titik
-    val_clean = re.sub(r'[^\d\.,]', '', val_str)
+    val_clean = re.sub(r'[^\d\.,-]', '', val_str)
     if not val_clean:
         return 0.0
 
@@ -44,7 +40,7 @@ def parse_indonesian_number(val):
             val_clean = val_clean.replace(',', '.')
         elif '.' in val_clean:
             parts = val_clean.split('.')
-            if len(parts[-1]) != 2: # Pemisah ribuan (bukan desimal 2 digit)
+            if len(parts[-1]) != 2:
                 val_clean = val_clean.replace('.', '')
         return float(val_clean)
     except:
@@ -65,160 +61,134 @@ def find_header_and_read(file, keywords):
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-def read_lra_file(file):
-    df = find_header_and_read(file, ['kode rekening', 'nilai sp2d', 'realisasi'])
+def format_rupiah(val):
+    if val < 0:
+        return f"Rp -{abs(val):,.0f}".replace(',', '.')
+    return f"Rp {val:,.0f}".replace(',', '.')
+
+def get_status(row):
+    lra = row['Total_LRA']
+    app = row['Total_Aplikasi_BM']
     
-    col_kode = [c for c in df.columns if 'kode' in c.lower()]
-    col_nama = [c for c in df.columns if 'nama' in c.lower() or 'uraian' in c.lower()]
-    col_nilai = [c for c in df.columns if 'sp2d' in c.lower() or 'realisasi' in c.lower() or 'nilai' in c.lower()]
-    col_skpd = [c for c in df.columns if 'skpd' in c.lower()]
+    if lra > 0 and app == 0:
+        return "Belum Input di Aplikasi Belanja Modal"
+    elif lra == 0 and app > 0:
+        return "Tidak Ada Realisasi di LRA"
+    elif abs(lra - app) > 1:
+        return "Beda Nilai Realisasi"
+    else:
+        return "Sesuai"
 
-    kode_col = col_kode[0] if col_kode else df.columns[0]
-    nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
-    nilai_col = col_nilai[0] if col_nilai else df.columns[-1]
-    skpd_col = col_skpd[0] if col_skpd else None
-
-    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
-    df['Nilai_LRA_Num'] = df[nilai_col].apply(parse_indonesian_number)
-    
-    return df, kode_col, nama_col, nilai_col, skpd_col
-
-def read_rak_file(file):
-    df = find_header_and_read(file, ['kode', 'rekening', 'pagu', 'anggaran'])
-    
-    col_kode = [c for c in df.columns if 'kode' in c.lower()]
-    col_nama = [c for c in df.columns if 'nama' in c.lower() or 'rekening' in c.lower() or 'uraian' in c.lower()]
-    col_pagu = [c for c in df.columns if 'pagu' in c.lower() or 'anggaran' in c.lower() or 'nilai' in c.lower() or 'jumlah' in c.lower()]
-
-    kode_col = col_kode[0] if col_kode else df.columns[0]
-    nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
-    pagu_col = col_pagu[0] if col_pagu else None
-
-    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
-    df['Anggaran_RAK_Num'] = df[pagu_col].apply(parse_indonesian_number) if pagu_col else 0.0
-        
-    return df, kode_col, nama_col, pagu_col
-
-def read_app_bm_file(file):
-    df = find_header_and_read(file, ['kode', 'uraian', 'pengadaan', 'nilai'])
-    
-    col_kode = [c for c in df.columns if 'kode' in c.lower()]
-    
-    # Pilih kolom yang berisi kata pengadaan / nilai / harga, abaikan kolom kode
-    col_nilai = [c for c in df.columns if ('pengadaan' in c.lower() or 'aset' in c.lower() or 'nilai' in c.lower() or 'harga' in c.lower() or 'total' in c.lower()) and 'kode' not in c.lower()]
-
-    kode_col = col_kode[0] if col_kode else df.columns[0]
-    nilai_col = col_nilai[0] if col_nilai else df.columns[-1]
-
-    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
-    df['Nilai_App_Num'] = df[nilai_col].apply(parse_indonesian_number)
-    
-    df = df[df['Kode_Clean'].str.contains(r'\.', na=False)].copy()
-    return df, kode_col, nilai_col
-
-if file_lra and file_rak and file_app_bm:
+if file_rak and file_lra and file_app_bm:
     try:
-        df_lra, lra_k, lra_n, lra_val, col_lra_skpd = read_lra_file(file_lra)
-        df_rak, rak_k, rak_n, rak_p = read_rak_file(file_rak)
-        df_app, app_k, app_val = read_app_bm_file(file_app_bm)
-
-        # Ambil transaksi LRA (Kode diawali 5)
-        df_bm_lra = df_lra[df_lra['Kode_Clean'].str.startswith('5')].copy()
-        if len(df_bm_lra) == 0:
-            df_bm_lra = df_lra.copy()
-
-        rekap_lra = df_bm_lra.groupby('Kode_Clean').agg(
-            Realisasi_LRA=('Nilai_LRA_Num', 'sum'),
-            Transaksi_LRA=('Nilai_LRA_Num', 'count')
-        ).reset_index()
-
-        rekap_app = df_app.groupby('Kode_Clean').agg(
-            Nilai_Aplikasi_BM=('Nilai_App_Num', 'sum')
-        ).reset_index()
-
-        rekap_rak = df_rak.groupby('Kode_Clean').agg(
-            Anggaran_RAK=('Anggaran_RAK_Num', 'sum')
-        ).reset_index()
-
-        # Buat daftar kode gabungan
-        master_kode = pd.DataFrame({'Kode_Clean': list(set(rekap_rak['Kode_Clean']).union(set(rekap_lra['Kode_Clean'])).union(set(rekap_app['Kode_Clean'])))})
+        # 1. Baca File LRA
+        df_lra = find_header_and_read(file_lra, ['kode rekening', 'nilai sp2d', 'realisasi'])
+        col_k_lra = [c for c in df_lra.columns if 'kode' in c.lower()][0]
+        col_n_lra = [c for c in df_lra.columns if 'nama' in c.lower() or 'uraian' in c.lower()][0]
+        col_v_lra = [c for c in df_lra.columns if 'sp2d' in c.lower() or 'realisasi' in c.lower()][0]
+        col_skpd = [c for c in df_lra.columns if 'skpd' in c.lower()]
         
-        # Ambil nama rekening
+        df_lra['Kode_Clean'] = df_lra[col_k_lra].apply(clean_kode_rekening)
+        df_lra['Nilai_Num'] = df_lra[col_v_lra].apply(parse_indonesian_number)
+        df_lra = df_lra[df_lra['Kode_Clean'] != ""].copy()
+        df_lra = df_lra[~df_lra[col_k_lra].astype(str).str.lower().str.contains('total|jumlah', na=False)].copy()
+
+        # 2. Sidebar Filter SKPD
+        selected_skpd = "Semua SKPD"
+        if col_skpd:
+            skpd_col_name = col_skpd[0]
+            list_skpd = ["Semua SKPD"] + sorted([str(x) for x in df_lra[skpd_col_name].dropna().unique()])
+            st.sidebar.markdown("---")
+            st.sidebar.header("Filter SKPD")
+            selected_skpd = st.sidebar.selectbox("Pilih SKPD yang ingin direkonsiliasi:", list_skpd)
+            
+            if selected_skpd != "Semua SKPD":
+                df_lra = df_lra[df_lra[skpd_col_name].astype(str) == selected_skpd].copy()
+
+        # 3. Baca File RAK & Aplikasi BM
+        df_rak = find_header_and_read(file_rak, ['kode', 'rekening', 'pagu', 'anggaran'])
+        col_k_rak = [c for c in df_rak.columns if 'kode' in c.lower()][0]
+        col_n_rak = [c for c in df_rak.columns if 'nama' in c.lower() or 'uraian' in c.lower()][0]
+        col_v_rak = [c for c in df_rak.columns if any(kw in c.lower() for kw in ['pagu', 'anggaran', 'nilai', 'jumlah'])][0]
+        df_rak['Kode_Clean'] = df_rak[col_k_rak].apply(clean_kode_rekening)
+        df_rak['Anggaran_Num'] = df_rak[col_v_rak].apply(parse_indonesian_number)
+
+        df_app = find_header_and_read(file_app_bm, ['kode', 'uraian', 'pengadaan', 'nilai'])
+        col_k_app = [c for c in df_app.columns if 'kode' in c.lower()][0]
+        col_v_app = [c for c in df_app.columns if any(kw in c.lower() for kw in ['pengadaan', 'aset', 'nilai', 'harga', 'total']) and 'kode' not in c.lower()][-1]
+        df_app['Kode_Clean'] = df_app[col_k_app].apply(clean_kode_rekening)
+        df_app['Nilai_App_Num'] = df_app[col_v_app].apply(parse_indonesian_number)
+
+        # 4. Agregasi Rekap
+        rekap_lra = df_lra.groupby('Kode_Clean').agg(Total_LRA=('Nilai_Num', 'sum')).reset_index()
+        rekap_app = df_app.groupby('Kode_Clean').agg(Total_Aplikasi_BM=('Nilai_App_Num', 'sum')).reset_index()
+        rekap_rak = df_rak.groupby('Kode_Clean').agg(Total_RAK=('Anggaran_Num', 'sum')).reset_index()
+
+        # Merge Data
+        master_kode = pd.DataFrame({'Kode_Clean': list(set(rekap_lra['Kode_Clean']).union(set(rekap_app['Kode_Clean'])).union(set(rekap_rak['Kode_Clean'])))})
+        
         nama_map = pd.concat([
-            df_rak[['Kode_Clean', rak_n]].rename(columns={rak_n: 'Nama_Rekening'}),
-            df_lra[['Kode_Clean', lra_n]].rename(columns={lra_n: 'Nama_Rekening'})
+            df_rak[['Kode_Clean', col_n_rak]].rename(columns={col_n_rak: 'Nama_Rekening'}),
+            df_lra[['Kode_Clean', col_n_lra]].rename(columns={col_n_lra: 'Nama_Rekening'})
         ]).drop_duplicates(subset=['Kode_Clean'])
 
-        df_compare = pd.merge(master_kode, nama_map, on='Kode_Clean', how='left')
-        df_compare = pd.merge(df_compare, rekap_rak, on='Kode_Clean', how='left')
-        df_compare = pd.merge(df_compare, rekap_lra, on='Kode_Clean', how='left')
-        df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='left')
+        df_final = pd.merge(master_kode, nama_map, on='Kode_Clean', how='left')
+        df_final = pd.merge(df_final, rekap_lra, on='Kode_Clean', how='left')
+        df_final = pd.merge(df_final, rekap_app, on='Kode_Clean', how='left')
+        
+        df_final['Total_LRA'] = df_final['Total_LRA'].fillna(0)
+        df_final['Total_Aplikasi_BM'] = df_final['Total_Aplikasi_BM'].fillna(0)
+        df_final['Selisih'] = df_final['Total_LRA'] - df_final['Total_Aplikasi_BM']
+        df_final['Status'] = df_final.apply(get_status, axis=1)
 
-        df_compare['Anggaran_RAK'] = df_compare['Anggaran_RAK'].fillna(0)
-        df_compare['Realisasi_LRA'] = df_compare['Realisasi_LRA'].fillna(0)
-        df_compare['Nilai_Aplikasi_BM'] = df_compare['Nilai_Aplikasi_BM'].fillna(0)
+        # Filter Kode Rekening Valid (mengandung titik dan non-zero)
+        df_final = df_final[df_final['Kode_Clean'].str.contains(r'\.', na=False)].copy()
+        df_final = df_final[(df_final['Total_LRA'] > 0) | (df_final['Total_Aplikasi_BM'] > 0)].sort_values('Kode_Clean')
 
-        df_compare['Selisih (LRA vs App BM)'] = df_compare['Realisasi_LRA'] - df_compare['Nilai_Aplikasi_BM']
-        df_compare['Sisa_Anggaran_RAK'] = df_compare['Anggaran_RAK'] - df_compare['Realisasi_LRA']
+        # 5. Tampilan Dashboard Utama
+        st.write("Pemerintah Kabupaten Hulu Sungai Tengah")
+        st.title(f"Hasil Rekonsiliasi SKPD: {selected_skpd}")
 
-        # Hanya tampilkan baris yang memiliki transaksi/pagu > 0
-        df_compare = df_compare[
-            (df_compare['Anggaran_RAK'] > 0) | 
-            (df_compare['Realisasi_LRA'] > 0) | 
-            (df_compare['Nilai_Aplikasi_BM'] > 0)
-        ].sort_values('Kode_Clean').copy()
+        tot_lra = df_final['Total_LRA'].sum()
+        tot_app = df_final['Total_Aplikasi_BM'].sum()
+        tot_selisih = tot_lra - tot_app
 
-        st.sidebar.success("✅ Berhasil memproses data!")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total LRA", format_rupiah(tot_lra))
+        c2.metric("Total Aplikasi Belanja Modal", format_rupiah(tot_app))
+        c3.metric("Total Selisih", format_rupiah(tot_selisih))
 
-        st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Pagu RAK", f"Rp {df_compare['Anggaran_RAK'].sum():,.0f}")
-        m2.metric("Total Realisasi LRA", f"Rp {df_compare['Realisasi_LRA'].sum():,.0f}")
-        m3.metric("Total Aplikasi BM", f"Rp {df_compare['Nilai_Aplikasi_BM'].sum():,.0f}")
-        m4.metric("Selisih (LRA vs App)", f"Rp {df_compare['Selisih (LRA vs App BM)'].sum():,.0f}")
+        st.subheader("Detail Rekonsiliasi Per Kode Rekening")
 
-        tab1, tab2, tab3 = st.tabs(["⚖️ Pembanding 3 Data", "🏢 Realisasi LRA per SKPD", "📑 Detail Transaksi LRA"])
+        # Format tampilan tabel agar sama persis seperti contoh
+        df_display = df_final.copy()
+        df_display.rename(columns={'Kode_Clean': 'Kode_Rekening', 'Total_Aplikasi_BM': 'Total_Aplikasi_BM'}, inplace=True)
+        df_display['Nama_Rekening'] = df_display['Nama_Rekening'].fillna("0")
+        
+        df_display['Total_LRA'] = df_display['Total_LRA'].apply(format_rupiah)
+        df_display['Total_Aplikasi_BM'] = df_display['Total_Aplikasi_BM'].apply(format_rupiah)
+        df_display['Selisih'] = df_display['Selisih'].apply(format_rupiah)
 
-        with tab1:
-            st.subheader("Tabel Pembanding: RAK vs Realisasi LRA vs Aplikasi Belanja Modal")
-            st.dataframe(
-                df_compare[['Kode_Clean', 'Nama_Rekening', 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], 
-                use_container_width=True
-            )
+        st.dataframe(
+            df_display[['Kode_Rekening', 'Nama_Rekening', 'Total_LRA', 'Total_Aplikasi_BM', 'Selisih', 'Status']], 
+            use_container_width=True,
+            hide_index=True
+        )
 
-        with tab2:
-            st.subheader("Rekap Realisasi Belanja Modal per SKPD")
-            if col_lra_skpd:
-                group_skpd = df_bm_lra.groupby(col_lra_skpd).agg(
-                    Total_Realisasi=('Nilai_LRA_Num', 'sum'),
-                    Jumlah_Transaksi=('Nilai_LRA_Num', 'count')
-                ).reset_index().sort_values(by='Total_Realisasi', ascending=False)
-                st.dataframe(group_skpd, use_container_width=True)
-            else:
-                st.info("Kolom SKPD tidak terdeteksi pada file LRA.")
-
-        with tab3:
-            st.subheader("Detail Transaksi LRA")
-            st.dataframe(df_bm_lra, use_container_width=True)
-
+        # Tombol Download Excel
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_compare.to_excel(writer, index=False, sheet_name='Pembanding_3_Data')
-            if col_lra_skpd:
-                group_skpd.to_excel(writer, index=False, sheet_name='Rekap_SKPD')
-            df_bm_lra.to_excel(writer, index=False, sheet_name='Detail_LRA')
+            df_final.to_excel(writer, index=False, sheet_name='Hasil_Rekonsiliasi')
 
         st.download_button(
-            label="📥 Download Hasil Rekon 3 Data (Excel)",
+            label="📥 Download Hasil Rekonsiliasi (.xlsx)",
             data=output.getvalue(),
-            file_name="REKON_BELANJA_MODAL_3_DATA.xlsx",
+            file_name=f"Hasil_Rekonsiliasi_{selected_skpd}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memproses data: {e}")
-elif file_lra or file_rak or file_app_bm:
-    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk mulai membandingkan.")
 else:
-    st.info("Silakan unggah ketiga file Excel di sidebar kiri.")
+    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk menampilkan hasil rekonsiliasi.")
