@@ -13,38 +13,56 @@ file_lra = st.sidebar.file_uploader("1. File Realisasi LRA (Excel)", type=["xlsx
 file_rak = st.sidebar.file_uploader("2. File Master RAK Belanja Modal (Excel)", type=["xlsx", "xls"])
 file_app_bm = st.sidebar.file_uploader("3. File Data Aplikasi Belanja Modal (Excel)", type=["xlsx", "xls"])
 
+def find_column(df, keywords):
+    for col in df.columns:
+        for kw in keywords:
+            if kw.lower() in str(col).lower():
+                return col
+    return None
+
 if file_lra and file_rak and file_app_bm:
     try:
         # 1. Load RAK Belanja Modal
         df_rak = pd.read_excel(file_rak)
-        rak_code_col = df_rak.columns[0]
-        rak_nama_col = df_rak.columns[1]
-        rak_pagu_col = df_rak.columns[2] if len(df_rak.columns) > 2 else None
+        col_rak_kode = find_column(df_rak, ['kode', 'rekening']) or df_rak.columns[0]
+        col_rak_nama = find_column(df_rak, ['nama', 'uraian', 'keterangan']) or (df_rak.columns[1] if len(df_rak.columns)>1 else df_rak.columns[0])
+        col_rak_pagu = find_column(df_rak, ['pagu', 'anggaran', 'nilai', 'rak', 'jumlah']) or (df_rak.columns[2] if len(df_rak.columns)>2 else None)
         
-        df_rak['Kode_Clean'] = df_rak[rak_code_col].astype(str).str.strip()
+        df_rak['Kode_Clean'] = df_rak[col_rak_kode].astype(str).str.strip()
 
         # 2. Load LRA Data
         xl_lra = pd.ExcelFile(file_lra)
-        sheet_name = xl_lra.sheet_names[0]
-        df_raw_lra = pd.read_excel(file_lra, sheet_name=sheet_name)
+        sheet_lra = xl_lra.sheet_names[0]
+        df_raw_lra = pd.read_excel(file_lra, sheet_name=sheet_lra)
         
-        header_row_idx = None
-        for idx, row in df_raw_lra.head(10).iterrows():
-            if 'Kode Rekening' in row.values:
-                header_row_idx = idx
+        # Deteksi Header Otomatis jika header ada di baris bawah
+        header_idx = 0
+        for idx, row in df_raw_lra.head(15).iterrows():
+            row_str = ' '.join(row.dropna().astype(str)).lower()
+            if 'kode' in row_str or 'rekening' in row_str or 'realisasi' in row_str:
+                header_idx = idx
                 break
                 
-        if header_row_idx is not None:
-            df_lra = pd.read_excel(file_lra, sheet_name=sheet_name, skiprows=header_row_idx)
+        if header_idx > 0:
+            df_lra = pd.read_excel(file_lra, sheet_name=sheet_lra, skiprows=header_idx)
         else:
             df_lra = df_raw_lra.copy()
-            
-        df_lra['Kode_Clean'] = df_lra['Kode Rekening'].astype(str).str.strip()
+
+        col_lra_kode = find_column(df_lra, ['kode rekening', 'kode', 'rekening']) or df_lra.columns[0]
+        col_lra_nama = find_column(df_lra, ['nama rekening', 'nama', 'uraian']) or df_lra.columns[1]
+        col_lra_nilai = find_column(df_lra, ['nilai realisasi', 'realisasi', 'nilai', 'jumlah']) or df_lra.columns[-1]
+        col_lra_skpd = find_column(df_lra, ['nama skpd', 'skpd', 'dinas', 'opd'])
+
+        df_lra['Kode_Clean'] = df_lra[col_lra_kode].astype(str).str.strip()
         df_bm_lra = df_lra[df_lra['Kode_Clean'].str.startswith('5.2')].copy()
         
-        rekap_lra = df_bm_lra.groupby(['Kode_Clean', 'Nama Rekening']).agg(
-            Realisasi_LRA=('Nilai Realisasi', 'sum'),
-            Transaksi_LRA=('Nilai Realisasi', 'count')
+        # Jika filter 5.2 tidak menemukan data, ambil seluruh data LRA
+        if len(df_bm_lra) == 0:
+            df_bm_lra = df_lra.copy()
+
+        rekap_lra = df_bm_lra.groupby(['Kode_Clean', col_lra_nama]).agg(
+            Realisasi_LRA=(col_lra_nilai, 'sum'),
+            Transaksi_LRA=(col_lra_nilai, 'count')
         ).reset_index()
 
         # 3. Load Data Aplikasi Belanja Modal
@@ -52,23 +70,21 @@ if file_lra and file_rak and file_app_bm:
         sheet_app = xl_app.sheet_names[0]
         df_app_raw = pd.read_excel(file_app_bm, sheet_name=sheet_app)
         
-        # Deteksi otomatis kolom kode rekening & nilai di aplikasi BM
-        app_code_col = [c for c in df_app_raw.columns if 'kode' in str(c).lower() or 'rekening' in str(c).lower()]
-        app_val_col = [c for c in df_app_raw.columns if 'nilai' in str(c).lower() or 'jumlah' in str(c).lower() or 'realisasi' in str(c).lower() or 'harga' in str(c).lower()]
+        col_app_kode = find_column(df_app_raw, ['kode', 'rekening', 'barang']) or df_app_raw.columns[0]
+        col_app_nilai = find_column(df_app_raw, ['nilai', 'jumlah', 'harga', 'realisasi', 'total']) or df_app_raw.columns[-1]
         
-        col_code = app_code_col[0] if app_code_col else df_app_raw.columns[0]
-        col_val = app_val_col[0] if app_val_col else df_app_raw.columns[-1]
-        
-        df_app_raw['Kode_Clean'] = df_app_raw[col_code].astype(str).str.strip()
+        df_app_raw['Kode_Clean'] = df_app_raw[col_app_kode].astype(str).str.strip()
         rekap_app = df_app_raw.groupby('Kode_Clean').agg(
-            Nilai_Aplikasi_BM=(col_val, 'sum')
+            Nilai_Aplikasi_BM=(col_app_nilai, 'sum')
         ).reset_index()
 
         # Merge 3 Data
-        df_compare = pd.merge(df_rak[['Kode_Clean', rak_nama_col, rak_pagu_col]], rekap_lra[['Kode_Clean', 'Realisasi_LRA', 'Transaksi_LRA']], on='Kode_Clean', how='outer')
+        df_compare = pd.merge(df_rak[['Kode_Clean', col_rak_nama] + ([col_rak_pagu] if col_rak_pagu else [])], 
+                              rekap_lra[['Kode_Clean', 'Realisasi_LRA', 'Transaksi_LRA']], 
+                              on='Kode_Clean', how='outer')
         df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='outer')
         
-        df_compare['Anggaran_RAK'] = df_compare[rak_pagu_col].fillna(0) if rak_pagu_col else 0
+        df_compare['Anggaran_RAK'] = df_compare[col_rak_pagu].fillna(0) if col_rak_pagu else 0
         df_compare['Realisasi_LRA'] = df_compare['Realisasi_LRA'].fillna(0)
         df_compare['Nilai_Aplikasi_BM'] = df_compare['Nilai_Aplikasi_BM'].fillna(0)
         
@@ -91,15 +107,18 @@ if file_lra and file_rak and file_app_bm:
         
         with tab1:
             st.subheader("Tabel Pembanding: RAK vs Realisasi LRA vs Aplikasi Belanja Modal")
-            st.dataframe(df_compare[['Kode_Clean', rak_nama_col, 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], use_container_width=True)
+            st.dataframe(df_compare[['Kode_Clean', col_rak_nama, 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], use_container_width=True)
             
         with tab2:
             st.subheader("Rekap Realisasi Belanja Modal per SKPD")
-            group_skpd = df_bm_lra.groupby(['Kode SKPD', 'Nama SKPD']).agg(
-                Total_Realisasi=('Nilai Realisasi', 'sum'),
-                Jumlah_Transaksi=('Nilai Realisasi', 'count')
-            ).reset_index().sort_values(by='Total_Realisasi', ascending=False)
-            st.dataframe(group_skpd, use_container_width=True)
+            if col_lra_skpd:
+                group_skpd = df_bm_lra.groupby(col_lra_skpd).agg(
+                    Total_Realisasi=(col_lra_nilai, 'sum'),
+                    Jumlah_Transaksi=(col_lra_nilai, 'count')
+                ).reset_index().sort_values(by='Total_Realisasi', ascending=False)
+                st.dataframe(group_skpd, use_container_width=True)
+            else:
+                st.info("Kolom SKPD tidak ditemukan pada file LRA.")
             
         with tab3:
             st.subheader("Detail Transaksi LRA")
@@ -110,7 +129,8 @@ if file_lra and file_rak and file_app_bm:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_compare.to_excel(writer, index=False, sheet_name='Pembanding_3_Data')
-            group_skpd.to_excel(writer, index=False, sheet_name='Rekap_SKPD')
+            if col_lra_skpd:
+                group_skpd.to_excel(writer, index=False, sheet_name='Rekap_SKPD')
             df_bm_lra.to_excel(writer, index=False, sheet_name='Detail_LRA')
             
         st.download_button(
