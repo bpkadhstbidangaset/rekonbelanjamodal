@@ -79,13 +79,22 @@ def get_status(row):
     else:
         return "Sesuai"
 
+def get_column_safe(df, keywords, default_idx=0):
+    """Mencari nama kolom berdasarkan kata kunci dengan amannya tanpa throw IndexError"""
+    cols = [c for c in df.columns if any(kw in c.lower() for kw in keywords)]
+    if cols:
+        return cols[0]
+    if len(df.columns) > abs(default_idx):
+        return df.columns[default_idx]
+    return df.columns[0]
+
 if file_rak and file_lra and file_app_bm:
     try:
         # 1. Baca File LRA
-        df_lra = find_header_and_read(file_lra, ['kode rekening', 'nilai sp2d', 'realisasi'])
-        col_k_lra = [c for c in df_lra.columns if 'kode' in c.lower()][0]
-        col_n_lra = [c for c in df_lra.columns if 'nama' in c.lower() or 'uraian' in c.lower()][0]
-        col_v_lra = [c for c in df_lra.columns if 'sp2d' in c.lower() or 'realisasi' in c.lower()][0]
+        df_lra = find_header_and_read(file_lra, ['kode', 'rekening', 'sp2d', 'realisasi'])
+        col_k_lra = get_column_safe(df_lra, ['kode'], 0)
+        col_n_lra = get_column_safe(df_lra, ['nama', 'uraian', 'rekening'], 1)
+        col_v_lra = get_column_safe(df_lra, ['sp2d', 'realisasi', 'nilai', 'jumlah'], -1)
         col_skpd = [c for c in df_lra.columns if 'skpd' in c.lower()]
         
         df_lra['Kode_Clean'] = df_lra[col_k_lra].apply(clean_kode_rekening)
@@ -105,21 +114,27 @@ if file_rak and file_lra and file_app_bm:
             if selected_skpd != "Semua SKPD":
                 df_lra = df_lra[df_lra[skpd_col_name].astype(str) == selected_skpd].copy()
 
-        # 3. Baca File RAK & Aplikasi BM
+        # 3. Baca File RAK
         df_rak = find_header_and_read(file_rak, ['kode', 'rekening', 'pagu', 'anggaran'])
-        col_k_rak = [c for c in df_rak.columns if 'kode' in c.lower()][0]
-        col_n_rak = [c for c in df_rak.columns if 'nama' in c.lower() or 'uraian' in c.lower()][0]
-        col_v_rak = [c for c in df_rak.columns if any(kw in c.lower() for kw in ['pagu', 'anggaran', 'nilai', 'jumlah'])][0]
+        col_k_rak = get_column_safe(df_rak, ['kode'], 0)
+        col_n_rak = get_column_safe(df_rak, ['nama', 'uraian', 'rekening'], 1)
+        col_v_rak = get_column_safe(df_rak, ['pagu', 'anggaran', 'nilai', 'jumlah'], -1)
+        
         df_rak['Kode_Clean'] = df_rak[col_k_rak].apply(clean_kode_rekening)
         df_rak['Anggaran_Num'] = df_rak[col_v_rak].apply(parse_indonesian_number)
 
+        # 4. Baca File Aplikasi BM
         df_app = find_header_and_read(file_app_bm, ['kode', 'uraian', 'pengadaan', 'nilai'])
-        col_k_app = [c for c in df_app.columns if 'kode' in c.lower()][0]
-        col_v_app = [c for c in df_app.columns if any(kw in c.lower() for kw in ['pengadaan', 'aset', 'nilai', 'harga', 'total']) and 'kode' not in c.lower()][-1]
+        col_k_app = get_column_safe(df_app, ['kode'], 0)
+        
+        # Cari kolom nilai yang bukan kolom kode
+        val_cols_app = [c for c in df_app.columns if any(kw in c.lower() for kw in ['pengadaan', 'aset', 'nilai', 'harga', 'total', 'jumlah']) and 'kode' not in c.lower()]
+        col_v_app = val_cols_app[0] if val_cols_app else df_app.columns[-1]
+
         df_app['Kode_Clean'] = df_app[col_k_app].apply(clean_kode_rekening)
         df_app['Nilai_App_Num'] = df_app[col_v_app].apply(parse_indonesian_number)
 
-        # 4. Agregasi Rekap
+        # 5. Agregasi Rekap
         rekap_lra = df_lra.groupby('Kode_Clean').agg(Total_LRA=('Nilai_Num', 'sum')).reset_index()
         rekap_app = df_app.groupby('Kode_Clean').agg(Total_Aplikasi_BM=('Nilai_App_Num', 'sum')).reset_index()
         rekap_rak = df_rak.groupby('Kode_Clean').agg(Total_RAK=('Anggaran_Num', 'sum')).reset_index()
@@ -141,11 +156,11 @@ if file_rak and file_lra and file_app_bm:
         df_final['Selisih'] = df_final['Total_LRA'] - df_final['Total_Aplikasi_BM']
         df_final['Status'] = df_final.apply(get_status, axis=1)
 
-        # Filter Kode Rekening Valid (mengandung titik dan non-zero)
+        # Filter Kode Rekening Valid
         df_final = df_final[df_final['Kode_Clean'].str.contains(r'\.', na=False)].copy()
         df_final = df_final[(df_final['Total_LRA'] > 0) | (df_final['Total_Aplikasi_BM'] > 0)].sort_values('Kode_Clean')
 
-        # 5. Tampilan Dashboard Utama
+        # 6. Tampilan Dashboard Utama
         st.write("Pemerintah Kabupaten Hulu Sungai Tengah")
         st.title(f"Hasil Rekonsiliasi SKPD: {selected_skpd}")
 
@@ -160,7 +175,6 @@ if file_rak and file_lra and file_app_bm:
 
         st.subheader("Detail Rekonsiliasi Per Kode Rekening")
 
-        # Format tampilan tabel agar sama persis seperti contoh
         df_display = df_final.copy()
         df_display.rename(columns={'Kode_Clean': 'Kode_Rekening', 'Total_Aplikasi_BM': 'Total_Aplikasi_BM'}, inplace=True)
         df_display['Nama_Rekening'] = df_display['Nama_Rekening'].fillna("0")
@@ -175,7 +189,7 @@ if file_rak and file_lra and file_app_bm:
             hide_index=True
         )
 
-        # Tombol Download Excel
+        # Download Excel
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -190,5 +204,7 @@ if file_rak and file_lra and file_app_bm:
 
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memproses data: {e}")
+elif file_rak or file_lra or file_app_bm:
+    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk mulai membandingkan.")
 else:
-    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk menampilkan hasil rekonsiliasi.")
+    st.info("Silakan unggah ketiga file Excel di sidebar kiri.")
