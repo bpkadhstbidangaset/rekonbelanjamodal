@@ -13,8 +13,17 @@ file_lra = st.sidebar.file_uploader("1. File Realisasi LRA (Excel)", type=["xlsx
 file_rak = st.sidebar.file_uploader("2. File Master RAK Belanja Modal (Excel)", type=["xlsx", "xls"])
 file_app_bm = st.sidebar.file_uploader("3. File Data Aplikasi Belanja Modal (Excel)", type=["xlsx", "xls"])
 
+def clean_kode_rekening(kode):
+    """Pembersih Kode Rekening Ekstrem: Menghapus spasi tersembunyi, petik, dan karakter aneh"""
+    if pd.isna(kode) or kode is None:
+        return ""
+    # Hapus spasi tak kasat mata (\xa0), spasi biasa, petik, dan newline
+    s = str(kode).replace('\xa0', '').replace("'", "").replace('"', '').strip()
+    s = re.sub(r'\s+', '', s)
+    return s
+
 def parse_indonesian_number(val):
-    """Mengkonversi teks angka format Indonesia (misal: 796.755.869,00 atau Rp. 118.102.000) ke Float"""
+    """Mengkonversi teks angka format Indonesia (misal: 796.755.869,00) ke Float"""
     if pd.isna(val) or val is None:
         return 0.0
     if isinstance(val, (int, float)):
@@ -24,48 +33,40 @@ def parse_indonesian_number(val):
     if not val_str or val_str.lower() in ['nan', 'none', '-', '']:
         return 0.0
     
-    # Hapus huruf/simbol selain angka, titik, koma
     val_clean = re.sub(r'[^\d\.,]', '', val_str)
     if not val_clean:
         return 0.0
 
     try:
-        # Jika ada titik dan koma (contoh: 796.755.869,00)
         if '.' in val_clean and ',' in val_clean:
             val_clean = val_clean.replace('.', '').replace(',', '.')
-        # Jika hanya ada koma sebagai pemisah desimal (contoh: 796755869,00)
         elif ',' in val_clean:
             val_clean = val_clean.replace(',', '.')
-        # Jika hanya ada titik sebagai pemisah ribuan (contoh: 118.102.000)
         elif '.' in val_clean:
             parts = val_clean.split('.')
-            if len(parts[-1]) != 2: # Bukan 2 digit desimal, berarti ribuan
+            if len(parts[-1]) != 2:
                 val_clean = val_clean.replace('.', '')
         return float(val_clean)
     except:
         return 0.0
 
-def normalize_kode(kode):
-    """Membersihkan kode rekening agar formatnya konsisten untuk matching"""
-    if pd.isna(kode):
-        return ""
-    k = str(kode).strip().replace(' ', '')
-    # Memastikan format standar dengan titik
-    return k
-
-def read_lra_file(file):
+def find_header_and_read(file, keywords):
     xl = pd.ExcelFile(file)
     df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=None)
     
     header_idx = 0
-    for idx, row in df_raw.head(20).iterrows():
+    for idx, row in df_raw.head(25).iterrows():
         row_str = ' '.join([str(v).lower() for v in row.dropna().values])
-        if 'kode rekening' in row_str or 'nilai sp2d' in row_str:
+        if any(kw in row_str for kw in keywords):
             header_idx = idx
             break
             
     df = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+def read_lra_file(file):
+    df = find_header_and_read(file, ['kode rekening', 'nilai sp2d', 'realisasi'])
     
     col_kode = [c for c in df.columns if 'kode rekening' in c.lower()]
     col_nama = [c for c in df.columns if 'nama rekening' in c.lower()]
@@ -77,15 +78,13 @@ def read_lra_file(file):
     nilai_col = col_nilai[0] if col_nilai else df.columns[-1]
     skpd_col = col_skpd[0] if col_skpd else None
 
-    df['Kode_Clean'] = df[kode_col].apply(normalize_kode)
+    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
     df['Nilai_LRA_Num'] = df[nilai_col].apply(parse_indonesian_number)
     
     return df, kode_col, nama_col, nilai_col, skpd_col
 
 def read_rak_file(file):
-    xl = pd.ExcelFile(file)
-    df = pd.read_excel(file, sheet_name=xl.sheet_names[0])
-    df.columns = [str(c).strip() for c in df.columns]
+    df = find_header_and_read(file, ['kode', 'rekening', 'kategori aset'])
     
     col_kode = [c for c in df.columns if 'kode' in c.lower()]
     col_nama = [c for c in df.columns if 'nama' in c.lower() or 'rekening' in c.lower()]
@@ -95,27 +94,13 @@ def read_rak_file(file):
     nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
     pagu_col = col_pagu[0] if col_pagu else None
 
-    df['Kode_Clean'] = df[kode_col].apply(normalize_kode)
-    if pagu_col:
-        df['Anggaran_RAK_Num'] = df[pagu_col].apply(parse_indonesian_number)
-    else:
-        df['Anggaran_RAK_Num'] = 0.0
+    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
+    df['Anggaran_RAK_Num'] = df[pagu_col].apply(parse_indonesian_number) if pagu_col else 0.0
         
     return df, kode_col, nama_col, pagu_col
 
 def read_app_bm_file(file):
-    xl = pd.ExcelFile(file)
-    df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=None)
-    
-    header_idx = 0
-    for idx, row in df_raw.head(20).iterrows():
-        row_str = ' '.join([str(v).lower() for v in row.dropna().values])
-        if 'kode' in row_str and ('uraian' in row_str or 'pengadaan' in row_str):
-            header_idx = idx
-            break
-            
-    df = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=header_idx)
-    df.columns = [str(c).strip() for c in df.columns]
+    df = find_header_and_read(file, ['kode', 'uraian', 'pengadaan'])
     
     col_kode = [c for c in df.columns if 'kode' in c.lower()]
     col_nilai = [c for c in df.columns if 'pengadaan' in c.lower() or 'aset' in c.lower()]
@@ -123,12 +108,10 @@ def read_app_bm_file(file):
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nilai_col = col_nilai[0] if col_nilai else df.columns[2]
 
-    df['Kode_Clean'] = df[kode_col].apply(normalize_kode)
+    df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
     df['Nilai_App_Num'] = df[nilai_col].apply(parse_indonesian_number)
     
-    # Hanya ambil baris yang memiliki nilai > 0 atau kode rekening spesifik
-    df = df[(df['Kode_Clean'] != "") & (df['Kode_Clean'].str.contains(r'\.', na=False))].copy()
-    
+    df = df[df['Kode_Clean'].str.contains(r'\.', na=False)].copy()
     return df, kode_col, nilai_col
 
 if file_lra and file_rak and file_app_bm:
@@ -137,12 +120,11 @@ if file_lra and file_rak and file_app_bm:
         df_rak, rak_k, rak_n, rak_p = read_rak_file(file_rak)
         df_app, app_k, app_val = read_app_bm_file(file_app_bm)
 
-        # Filter transaksi LRA
+        # Filter transaksi LRA (Kode diawali 5)
         df_bm_lra = df_lra[df_lra['Kode_Clean'].str.startswith('5')].copy()
         if len(df_bm_lra) == 0:
             df_bm_lra = df_lra.copy()
 
-        # Rekap Nilai per Kode Rekening
         rekap_lra = df_bm_lra.groupby('Kode_Clean').agg(
             Realisasi_LRA=('Nilai_LRA_Num', 'sum'),
             Transaksi_LRA=('Nilai_LRA_Num', 'count')
@@ -156,11 +138,19 @@ if file_lra and file_rak and file_app_bm:
             Anggaran_RAK=('Anggaran_RAK_Num', 'sum')
         ).reset_index()
 
-        # Gabungkan Master RAK dengan hasil Rekap
-        df_compare = pd.merge(df_rak[['Kode_Clean', rak_n]].drop_duplicates(subset=['Kode_Clean']), 
-                              rekap_rak, on='Kode_Clean', how='outer')
-        df_compare = pd.merge(df_compare, rekap_lra, on='Kode_Clean', how='outer')
-        df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='outer')
+        # Ambil master kode dari gabungan ketiganya
+        master_kode = pd.DataFrame({'Kode_Clean': list(set(rekap_rak['Kode_Clean']).union(set(rekap_lra['Kode_Clean'])).union(set(rekap_app['Kode_Clean'])))})
+        
+        # Gabungkan Nama Rekening dari RAK / LRA
+        nama_map = pd.concat([
+            df_rak[['Kode_Clean', rak_n]].rename(columns={rak_n: 'Nama_Rekening'}),
+            df_lra[['Kode_Clean', lra_n]].rename(columns={lra_n: 'Nama_Rekening'})
+        ]).drop_duplicates(subset=['Kode_Clean'])
+
+        df_compare = pd.merge(master_kode, nama_map, on='Kode_Clean', how='left')
+        df_compare = pd.merge(df_compare, rekap_rak, on='Kode_Clean', how='left')
+        df_compare = pd.merge(df_compare, rekap_lra, on='Kode_Clean', how='left')
+        df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='left')
 
         df_compare['Anggaran_RAK'] = df_compare['Anggaran_RAK'].fillna(0)
         df_compare['Realisasi_LRA'] = df_compare['Realisasi_LRA'].fillna(0)
@@ -169,26 +159,24 @@ if file_lra and file_rak and file_app_bm:
         df_compare['Selisih (LRA vs App BM)'] = df_compare['Realisasi_LRA'] - df_compare['Nilai_Aplikasi_BM']
         df_compare['Sisa_Anggaran_RAK'] = df_compare['Anggaran_RAK'] - df_compare['Realisasi_LRA']
 
-        # Hapus baris header sampah (seperti kode '1', '2', '3')
-        df_compare = df_compare[df_compare['Kode_Clean'].str.contains(r'\.', na=False)].copy()
+        # Filter hanya kode valid dengan titik
+        df_compare = df_compare[df_compare['Kode_Clean'].str.contains(r'\.', na=False)].sort_values('Kode_Clean').copy()
 
         st.sidebar.success("✅ Berhasil memproses data!")
 
-        # Tampilkan Ringkasan Metrik Angka
         st.markdown("---")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Pagu RAK", f"Rp {df_compare['Anggaran_RAK'].sum():,.2f}")
-        m2.metric("Total Realisasi LRA", f"Rp {df_compare['Realisasi_LRA'].sum():,.2f}")
-        m3.metric("Total Aplikasi BM", f"Rp {df_compare['Nilai_Aplikasi_BM'].sum():,.2f}")
-        m4.metric("Selisih (LRA vs App)", f"Rp {df_compare['Selisih (LRA vs App BM)'].sum():,.2f}")
+        m1.metric("Total Pagu RAK", f"Rp {df_compare['Anggaran_RAK'].sum():,.0f}")
+        m2.metric("Total Realisasi LRA", f"Rp {df_compare['Realisasi_LRA'].sum():,.0f}")
+        m3.metric("Total Aplikasi BM", f"Rp {df_compare['Nilai_Aplikasi_BM'].sum():,.0f}")
+        m4.metric("Selisih (LRA vs App)", f"Rp {df_compare['Selisih (LRA vs App BM)'].sum():,.0f}")
 
-        # Tab Tampilan Data
         tab1, tab2, tab3 = st.tabs(["⚖️ Pembanding 3 Data", "🏢 Realisasi LRA per SKPD", "📑 Detail Transaksi LRA"])
 
         with tab1:
             st.subheader("Tabel Pembanding: RAK vs Realisasi LRA vs Aplikasi Belanja Modal")
             st.dataframe(
-                df_compare[['Kode_Clean', rak_n, 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], 
+                df_compare[['Kode_Clean', 'Nama_Rekening', 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], 
                 use_container_width=True
             )
 
@@ -207,7 +195,6 @@ if file_lra and file_rak and file_app_bm:
             st.subheader("Detail Transaksi LRA")
             st.dataframe(df_bm_lra, use_container_width=True)
 
-        # Tombol Download Hasil
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
