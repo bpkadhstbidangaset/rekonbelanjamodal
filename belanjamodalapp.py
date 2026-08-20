@@ -14,7 +14,7 @@ file_rak = st.sidebar.file_uploader("2. File Master RAK Belanja Modal (Excel)", 
 file_app_bm = st.sidebar.file_uploader("3. File Data Aplikasi Belanja Modal (Excel)", type=["xlsx", "xls"])
 
 def clean_number_id(series):
-    """Mengubah format rupiah Indonesia (Rp.118.102.000,00 atau 796.755.869,00) menjadi Float"""
+    """Mengubah format rupiah Indonesia menjadi Float"""
     if series is None:
         return pd.Series(0.0)
     
@@ -30,7 +30,6 @@ def clean_number_id(series):
             elif ',' in val:
                 val = val.replace(',', '.')
             elif '.' in val:
-                # Jika format ribuan dengan titik (contoh: 118.102.000)
                 parts = val.split('.')
                 if len(parts[-1]) != 2:
                     val = val.replace('.', '')
@@ -41,11 +40,9 @@ def clean_number_id(series):
     return s.apply(parse_val).fillna(0.0)
 
 def read_lra_file(file):
-    """Membaca Foto 2: Laporan Realisasi LRA"""
     xl = pd.ExcelFile(file)
     df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0])
     
-    # Cari baris header yang berisi "Kode Rekening" atau "Nilai SP2D"
     header_idx = 0
     for idx, row in df_raw.head(15).iterrows():
         row_str = ' '.join(row.dropna().astype(str)).lower()
@@ -54,12 +51,13 @@ def read_lra_file(file):
             break
             
     df = pd.read_excel(file, sheet_name=xl.sheet_names[0], skiprows=header_idx)
+    # Ubah semua nama kolom menjadi string untuk mencegah 'float' has no attribute 'lower'
+    df.columns = [str(c) for c in df.columns]
     
-    # Ambil kolom spesifik sesuai Foto 2
-    col_kode = [c for c in df.columns if 'kode rekening' in str(c).lower()]
-    col_nama = [c for c in df.columns if 'nama rekening' in str(c).lower()]
-    col_nilai = [c for c in df.columns if 'nilai sp2d' in str(c).lower() or 'nilai realisasi' in str(c).lower()]
-    col_skpd = [c for c in df.columns if 'nama skpd' in str(c).lower()]
+    col_kode = [c for c in df.columns if 'kode rekening' in c.lower()]
+    col_nama = [c for c in df.columns if 'nama rekening' in c.lower()]
+    col_nilai = [c for c in df.columns if 'nilai sp2d' in c.lower() or 'nilai realisasi' in c.lower()]
+    col_skpd = [c for c in df.columns if 'nama skpd' in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
@@ -72,14 +70,13 @@ def read_lra_file(file):
     return df, kode_col, nama_col, nilai_col, skpd_col
 
 def read_rak_file(file):
-    """Membaca Foto 3: Master RAK Belanja Modal"""
     xl = pd.ExcelFile(file)
     df = pd.read_excel(file, sheet_name=xl.sheet_names[0])
+    df.columns = [str(c) for c in df.columns]
     
-    # Sesuai Foto 3: Header ada di baris pertama
-    col_kode = [c for c in df.columns if 'kode' in str(c).lower()]
-    col_nama = [c for c in df.columns if 'nama' in str(c).lower() or 'rekening' in str(c).lower()]
-    col_pagu = [c for c in df.columns if 'pagu' in str(c).lower() or 'anggaran' in str(c).lower() or 'nilai' in str(c).lower()]
+    col_kode = [c for c in df.columns if 'kode' in c.lower()]
+    col_nama = [c for c in df.columns if 'nama' in c.lower() or 'rekening' in c.lower()]
+    col_pagu = [c for c in df.columns if 'pagu' in c.lower() or 'anggaran' in c.lower() or 'nilai' in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
@@ -94,11 +91,9 @@ def read_rak_file(file):
     return df, kode_col, nama_col, pagu_col
 
 def read_app_bm_file(file):
-    """Membaca Foto 1: Rincian Pengadaan Aset (Aplikasi Belanja Modal)"""
     xl = pd.ExcelFile(file)
     df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0])
     
-    # Cari baris header yang berisi "KODE", "URAAN", "PENGADAAN"
     header_idx = 0
     for idx, row in df_raw.head(15).iterrows():
         row_str = ' '.join(row.dropna().astype(str)).lower()
@@ -107,10 +102,10 @@ def read_app_bm_file(file):
             break
             
     df = pd.read_excel(file, sheet_name=xl.sheet_names[0], skiprows=header_idx)
+    df.columns = [str(c) for c in df.columns]
     
-    # Sesuaikan dengan Foto 1 (Kolom KODE, URAIAN, PENGADAAN)
-    col_kode = [c for c in df.columns if 'kode' in str(c).lower()]
-    col_nilai = [c for c in df.columns if 'pengadaan' in str(c).lower() or 'aset' in str(c).lower()]
+    col_kode = [c for c in df.columns if 'kode' in c.lower()]
+    col_nilai = [c for c in df.columns if 'pengadaan' in c.lower() or 'aset' in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nilai_col = col_nilai[0] if col_nilai else df.columns[2]
@@ -118,7 +113,7 @@ def read_app_bm_file(file):
     df['Kode_Clean'] = df[kode_col].astype(str).str.strip()
     df['Nilai_App_Num'] = clean_number_id(df[nilai_col])
     
-    # Filter hanya baris yang merupakan Kode Rekening (mengandung titik, bukan nomor urut 1, 2, 3)
+    # Filter hanya kode rekening valid yang mengandung titik
     df = df[df['Kode_Clean'].str.contains(r'\.', na=False)].copy()
     
     return df, kode_col, nilai_col
@@ -143,7 +138,7 @@ if file_lra and file_rak and file_app_bm:
             Nilai_Aplikasi_BM=('Nilai_App_Num', 'sum')
         ).reset_index()
 
-        # Merge Master RAK + Realisasi LRA + App Belanja Modal
+        # Merge Data
         df_compare = pd.merge(df_rak[['Kode_Clean', rak_n, 'Anggaran_RAK_Num']], 
                               rekap_lra, on='Kode_Clean', how='outer')
         df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='outer')
@@ -155,12 +150,11 @@ if file_lra and file_rak and file_app_bm:
         df_compare['Selisih (LRA vs App BM)'] = df_compare['Realisasi_LRA'] - df_compare['Nilai_Aplikasi_BM']
         df_compare['Sisa_Anggaran_RAK'] = df_compare['Anggaran_RAK'] - df_compare['Realisasi_LRA']
 
-        # Hapus baris yang kodenya bukan format rekening (mencegah nomor urut '1', '2' masuk)
         df_compare = df_compare[df_compare['Kode_Clean'].str.contains(r'\.', na=False)].copy()
 
         st.sidebar.success("✅ Berhasil memproses data!")
 
-        # Visualisasi Ringkasan Total
+        # Metrics
         st.markdown("---")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Pagu RAK", f"Rp {df_compare['Anggaran_RAK'].sum():,.0f}")
@@ -168,7 +162,7 @@ if file_lra and file_rak and file_app_bm:
         m3.metric("Total Aplikasi BM", f"Rp {df_compare['Nilai_Aplikasi_BM'].sum():,.0f}")
         m4.metric("Selisih (LRA vs App)", f"Rp {df_compare['Selisih (LRA vs App BM)'].sum():,.0f}")
 
-        # Tampilan Tabel Hasil
+        # Tabs
         tab1, tab2, tab3 = st.tabs(["⚖️ Pembanding 3 Data", "🏢 Realisasi LRA per SKPD", "📑 Detail Transaksi LRA"])
 
         with tab1:
