@@ -20,6 +20,7 @@ def clean_kode_rekening(kode):
     return s
 
 def parse_indonesian_number(val):
+    """Konversi format angka rupiah Indonesia (contoh: 796.755.869,00) ke Float"""
     if pd.isna(val) or val is None:
         return 0.0
     if isinstance(val, (int, float)):
@@ -29,16 +30,17 @@ def parse_indonesian_number(val):
     if not val_str or val_str.lower() in ['nan', 'none', '-', '']:
         return 0.0
 
+    # Ambil angka, titik, koma, dan minus
     val_clean = re.sub(r'[^\d\.,-]', '', val_str)
     if not val_clean:
         return 0.0
 
     try:
-        if '.' in val_clean and ',' in val_clean:
+        # Jika format Indonesia: 796.755.869,00 -> hilangkan titik, ganti koma dengan titik
+        if ',' in val_clean:
             val_clean = val_clean.replace('.', '').replace(',', '.')
-        elif ',' in val_clean:
-            val_clean = val_clean.replace(',', '.')
         elif '.' in val_clean:
+            # Jika hanya titik, cek apakah titik berfungsi sebagai pemisah ribuan
             parts = val_clean.split('.')
             if len(parts[-1]) != 2:
                 val_clean = val_clean.replace('.', '')
@@ -51,14 +53,23 @@ def find_header_and_read(file, keywords):
     df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=None)
     
     header_idx = 0
-    for idx, row in df_raw.head(30).iterrows():
+    for idx, row in df_raw.head(35).iterrows():
         row_str = ' '.join([str(v).lower() for v in row.dropna().values])
         if any(kw in row_str for kw in keywords):
             header_idx = idx
             break
             
     df = pd.read_excel(file, sheet_name=xl.sheet_names[0], header=header_idx)
-    df.columns = [str(c).strip() for c in df.columns]
+    
+    # Ratakan header jika multi-index/gabungan angka (1, 2, 3)
+    new_cols = []
+    for c in df.columns:
+        c_str = str(c).strip()
+        if c_str.isdigit():
+            new_cols.append(f"Col_{c_str}")
+        else:
+            new_cols.append(c_str)
+    df.columns = new_cols
     return df
 
 def format_rupiah(val):
@@ -79,23 +90,16 @@ def get_status(row):
     else:
         return "Sesuai"
 
-def get_column_safe(df, keywords, default_idx=0):
-    cols = [c for c in df.columns if any(kw in c.lower() for kw in keywords)]
-    if cols:
-        return cols[0]
-    if len(df.columns) > abs(default_idx):
-        return df.columns[default_idx]
-    return df.columns[0]
-
 if file_rak and file_lra and file_app_bm:
     try:
         # 1. Baca File LRA
         df_lra = find_header_and_read(file_lra, ['kode', 'rekening', 'sp2d', 'realisasi', 'nilai'])
-        col_k_lra = get_column_safe(df_lra, ['kode'], 0)
-        col_n_lra = get_column_safe(df_lra, ['nama', 'uraian', 'rekening'], 1)
-        col_v_lra = get_column_safe(df_lra, ['sp2d', 'realisasi', 'nilai', 'jumlah', 'kredit', 'debet'], -1)
-        col_skpd = [c for c in df_lra.columns if 'skpd' in c.lower()]
         
+        col_k_lra = [c for c in df_lra.columns if 'kode' in c.lower()][0] if [c for c in df_lra.columns if 'kode' in c.lower()] else df_lra.columns[0]
+        col_n_lra = [c for c in df_lra.columns if any(kw in c.lower() for kw in ['nama', 'uraian', 'rekening'])][0] if [c for c in df_lra.columns if any(kw in c.lower() for kw in ['nama', 'uraian', 'rekening'])] else df_lra.columns[1]
+        col_v_lra = [c for c in df_lra.columns if any(kw in c.lower() for kw in ['sp2d', 'realisasi', 'nilai', 'jumlah', 'kredit'])][0] if [c for c in df_lra.columns if any(kw in c.lower() for kw in ['sp2d', 'realisasi', 'nilai', 'jumlah', 'kredit'])] else df_lra.columns[-1]
+        col_skpd = [c for c in df_lra.columns if 'skpd' in c.lower()]
+
         df_lra['Kode_Clean'] = df_lra[col_k_lra].apply(clean_kode_rekening)
         df_lra['Nilai_Num'] = df_lra[col_v_lra].apply(parse_indonesian_number)
         df_lra = df_lra[df_lra['Kode_Clean'] != ""].copy()
@@ -115,42 +119,25 @@ if file_rak and file_lra and file_app_bm:
 
         # 3. Baca File RAK
         df_rak = find_header_and_read(file_rak, ['kode', 'rekening', 'pagu', 'anggaran'])
-        col_k_rak = get_column_safe(df_rak, ['kode'], 0)
-        col_n_rak = get_column_safe(df_rak, ['nama', 'uraian', 'rekening'], 1)
-        col_v_rak = get_column_safe(df_rak, ['pagu', 'anggaran', 'nilai', 'jumlah'], -1)
-        
+        col_k_rak = [c for c in df_rak.columns if 'kode' in c.lower()][0] if [c for c in df_rak.columns if 'kode' in c.lower()] else df_rak.columns[0]
+        col_n_rak = [c for c in df_rak.columns if any(kw in c.lower() for kw in ['nama', 'uraian', 'rekening'])][0] if [c for c in df_rak.columns if any(kw in c.lower() for kw in ['nama', 'uraian', 'rekening'])] else df_rak.columns[1]
+        col_v_rak = [c for c in df_rak.columns if any(kw in c.lower() for kw in ['pagu', 'anggaran', 'nilai', 'jumlah'])][0] if [c for c in df_rak.columns if any(kw in c.lower() for kw in ['pagu', 'anggaran', 'nilai', 'jumlah'])] else df_rak.columns[-1]
+
         df_rak['Kode_Clean'] = df_rak[col_k_rak].apply(clean_kode_rekening)
         df_rak['Anggaran_Num'] = df_rak[col_v_rak].apply(parse_indonesian_number)
 
-        # 4. Baca File Aplikasi BM (Dengan Validasi Ketat Kolom Nilai)
-        df_app = find_header_and_read(file_app_bm, ['kode', 'uraian', 'pengadaan', 'nilai', 'harga', 'total'])
-        col_k_app = get_column_safe(df_app, ['kode'], 0)
+        # 4. Baca File Aplikasi Belanja Modal (Khusus Format Rincian Pengadaan Aset)
+        df_app = find_header_and_read(file_app_bm, ['kode', 'uraian', 'pengadaan', 'aset'])
         
-        # Cari kolom nilai rupiah murni yang BUKAN kolom kode
-        candidate_cols = [c for c in df_app.columns if any(kw in c.lower() for kw in ['pengadaan', 'aset', 'nilai', 'harga', 'total', 'jumlah', 'realisasi']) and 'kode' not in c.lower()]
+        col_k_app = [c for c in df_app.columns if 'kode' in c.lower()][0] if [c for c in df_app.columns if 'kode' in c.lower()] else df_app.columns[0]
+        col_n_app = [c for c in df_app.columns if 'uraian' in c.lower()][0] if [c for c in df_app.columns if 'uraian' in c.lower()] else df_app.columns[1]
         
-        if candidate_cols:
-            col_v_app = candidate_cols[0]
-        else:
-            # Ambil kolom numerik paling kanan yang isinya bukan pola kode rekening
-            col_v_app = df_app.columns[-1]
-            for col in reversed(df_app.columns):
-                if col != col_k_app:
-                    sample_vals = df_app[col].dropna().astype(str).head(10).tolist()
-                    # Jika isi kolom bukan kode rekening (tidak diawali 5.0 atau 5.2)
-                    if not any(v.strip().startswith(('5.', '50', '52')) for v in sample_vals):
-                        col_v_app = col
-                        break
+        # Ambil kolom PENGADAAN (Kolom nilai rupiah)
+        col_v_app_list = [c for c in df_app.columns if 'pengadaan' in c.lower()]
+        col_v_app = col_v_app_list[0] if col_v_app_list else df_app.columns[2]
 
         df_app['Kode_Clean'] = df_app[col_k_app].apply(clean_kode_rekening)
         df_app['Nilai_App_Num'] = df_app[col_v_app].apply(parse_indonesian_number)
-
-        # Proteksi Tambahan: Netralkan nilai jika tidak sengaja membaca kode rekening sebagai rupiah
-        for idx, row in df_app.iterrows():
-            clean_k = str(row['Kode_Clean']).replace('.', '')
-            val_num = str(int(row['Nilai_App_Num'])) if row['Nilai_App_Num'] > 0 else ""
-            if clean_k and val_num and (clean_k == val_num or val_num.startswith('5020') or val_num.startswith('5202')):
-                df_app.at[idx, 'Nilai_App_Num'] = 0.0
 
         # 5. Agregasi Rekap
         rekap_lra = df_lra.groupby('Kode_Clean').agg(Total_LRA=('Nilai_Num', 'sum')).reset_index()
@@ -162,7 +149,8 @@ if file_rak and file_lra and file_app_bm:
         
         nama_map = pd.concat([
             df_rak[['Kode_Clean', col_n_rak]].rename(columns={col_n_rak: 'Nama_Rekening'}),
-            df_lra[['Kode_Clean', col_n_lra]].rename(columns={col_n_lra: 'Nama_Rekening'})
+            df_lra[['Kode_Clean', col_n_lra]].rename(columns={col_n_lra: 'Nama_Rekening'}),
+            df_app[['Kode_Clean', col_n_app]].rename(columns={col_n_app: 'Nama_Rekening'})
         ]).drop_duplicates(subset=['Kode_Clean'])
 
         df_final = pd.merge(master_kode, nama_map, on='Kode_Clean', how='left')
@@ -174,11 +162,11 @@ if file_rak and file_lra and file_app_bm:
         df_final['Selisih'] = df_final['Total_LRA'] - df_final['Total_Aplikasi_BM']
         df_final['Status'] = df_final.apply(get_status, axis=1)
 
-        # Filter Kode Rekening Valid
-        df_final = df_final[df_final['Kode_Clean'].str.contains(r'\.', na=False)].copy()
+        # Hanya ambil baris kode rekening yang valid (ada angkanya dan memiliki nilai LRA/Aplikasi)
+        df_final = df_final[df_final['Kode_Clean'] != ""].copy()
         df_final = df_final[(df_final['Total_LRA'] > 0) | (df_final['Total_Aplikasi_BM'] > 0)].sort_values('Kode_Clean')
 
-        # 6. Tampilan Dashboard Utama
+        # 6. Tampilan Dashboard
         st.write("Pemerintah Kabupaten Hulu Sungai Tengah")
         st.title(f"Hasil Rekonsiliasi SKPD: {selected_skpd}")
 
@@ -195,7 +183,7 @@ if file_rak and file_lra and file_app_bm:
 
         df_display = df_final.copy()
         df_display.rename(columns={'Kode_Clean': 'Kode_Rekening'}, inplace=True)
-        df_display['Nama_Rekening'] = df_display['Nama_Rekening'].fillna("0")
+        df_display['Nama_Rekening'] = df_display['Nama_Rekening'].fillna("Tidak Ada Uraian")
         
         df_display['Total_LRA'] = df_display['Total_LRA'].apply(format_rupiah)
         df_display['Total_Aplikasi_BM'] = df_display['Total_Aplikasi_BM'].apply(format_rupiah)
