@@ -20,6 +20,19 @@ def find_column(df, keywords):
                 return col
     return None
 
+def clean_numeric(series):
+    # Mengubah data teks/string menjadi angka bersih (float)
+    if series is None:
+        return 0
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace('Rp', '', regex=False)
+        .str.replace('.', '', regex=False)
+        .str.replace(',', '.', regex=False)
+        .str.strip(), 
+        errors='coerce'
+    ).fillna(0)
+
 if file_lra and file_rak and file_app_bm:
     try:
         # 1. Load RAK Belanja Modal
@@ -29,13 +42,16 @@ if file_lra and file_rak and file_app_bm:
         col_rak_pagu = find_column(df_rak, ['pagu', 'anggaran', 'nilai', 'rak', 'jumlah']) or (df_rak.columns[2] if len(df_rak.columns)>2 else None)
         
         df_rak['Kode_Clean'] = df_rak[col_rak_kode].astype(str).str.strip()
+        if col_rak_pagu:
+            df_rak['Anggaran_RAK_Num'] = clean_numeric(df_rak[col_rak_pagu])
+        else:
+            df_rak['Anggaran_RAK_Num'] = 0
 
         # 2. Load LRA Data
         xl_lra = pd.ExcelFile(file_lra)
         sheet_lra = xl_lra.sheet_names[0]
         df_raw_lra = pd.read_excel(file_lra, sheet_name=sheet_lra)
         
-        # Deteksi Header Otomatis jika header ada di baris bawah
         header_idx = 0
         for idx, row in df_raw_lra.head(15).iterrows():
             row_str = ' '.join(row.dropna().astype(str)).lower()
@@ -54,15 +70,15 @@ if file_lra and file_rak and file_app_bm:
         col_lra_skpd = find_column(df_lra, ['nama skpd', 'skpd', 'dinas', 'opd'])
 
         df_lra['Kode_Clean'] = df_lra[col_lra_kode].astype(str).str.strip()
+        df_lra['Nilai_LRA_Num'] = clean_numeric(df_lra[col_lra_nilai])
+
         df_bm_lra = df_lra[df_lra['Kode_Clean'].str.startswith('5.2')].copy()
-        
-        # Jika filter 5.2 tidak menemukan data, ambil seluruh data LRA
         if len(df_bm_lra) == 0:
             df_bm_lra = df_lra.copy()
 
         rekap_lra = df_bm_lra.groupby(['Kode_Clean', col_lra_nama]).agg(
-            Realisasi_LRA=(col_lra_nilai, 'sum'),
-            Transaksi_LRA=(col_lra_nilai, 'count')
+            Realisasi_LRA=('Nilai_LRA_Num', 'sum'),
+            Transaksi_LRA=('Nilai_LRA_Num', 'count')
         ).reset_index()
 
         # 3. Load Data Aplikasi Belanja Modal
@@ -74,21 +90,23 @@ if file_lra and file_rak and file_app_bm:
         col_app_nilai = find_column(df_app_raw, ['nilai', 'jumlah', 'harga', 'realisasi', 'total']) or df_app_raw.columns[-1]
         
         df_app_raw['Kode_Clean'] = df_app_raw[col_app_kode].astype(str).str.strip()
+        df_app_raw['Nilai_App_Num'] = clean_numeric(df_app_raw[col_app_nilai])
+
         rekap_app = df_app_raw.groupby('Kode_Clean').agg(
-            Nilai_Aplikasi_BM=(col_app_nilai, 'sum')
+            Nilai_Aplikasi_BM=('Nilai_App_Num', 'sum')
         ).reset_index()
 
         # Merge 3 Data
-        df_compare = pd.merge(df_rak[['Kode_Clean', col_rak_nama] + ([col_rak_pagu] if col_rak_pagu else [])], 
+        df_compare = pd.merge(df_rak[['Kode_Clean', col_rak_nama, 'Anggaran_RAK_Num']], 
                               rekap_lra[['Kode_Clean', 'Realisasi_LRA', 'Transaksi_LRA']], 
                               on='Kode_Clean', how='outer')
         df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='outer')
         
-        df_compare['Anggaran_RAK'] = df_compare[col_rak_pagu].fillna(0) if col_rak_pagu else 0
+        df_compare['Anggaran_RAK'] = df_compare['Anggaran_RAK_Num'].fillna(0)
         df_compare['Realisasi_LRA'] = df_compare['Realisasi_LRA'].fillna(0)
         df_compare['Nilai_Aplikasi_BM'] = df_compare['Nilai_Aplikasi_BM'].fillna(0)
         
-        # Perhitungan Selisih
+        # Perhitungan Selisih (Aman dari String Error)
         df_compare['Selisih (LRA vs App BM)'] = df_compare['Realisasi_LRA'] - df_compare['Nilai_Aplikasi_BM']
         df_compare['Sisa_Anggaran_RAK'] = df_compare['Anggaran_RAK'] - df_compare['Realisasi_LRA']
 
@@ -113,8 +131,8 @@ if file_lra and file_rak and file_app_bm:
             st.subheader("Rekap Realisasi Belanja Modal per SKPD")
             if col_lra_skpd:
                 group_skpd = df_bm_lra.groupby(col_lra_skpd).agg(
-                    Total_Realisasi=(col_lra_nilai, 'sum'),
-                    Jumlah_Transaksi=(col_lra_nilai, 'count')
+                    Total_Realisasi=('Nilai_LRA_Num', 'sum'),
+                    Jumlah_Transaksi=('Nilai_LRA_Num', 'count')
                 ).reset_index().sort_values(by='Total_Realisasi', ascending=False)
                 st.dataframe(group_skpd, use_container_width=True)
             else:
