@@ -8,84 +8,128 @@ st.title("🏛️ Aplikasi Rekap & Pembanding Belanja Modal (SIPD)")
 st.write("Unggah file Realisasi LRA, Master RAK, dan Data Aplikasi Belanja Modal untuk membandingkan ketiganya secara otomatis.")
 
 # Sidebar File Uploaders
-st.sidebar.header("📁 1. Unggah File")
+st.sidebar.header("📁 Unggah File")
 file_lra = st.sidebar.file_uploader("1. File Realisasi LRA (Excel)", type=["xlsx", "xls"])
 file_rak = st.sidebar.file_uploader("2. File Master RAK Belanja Modal (Excel)", type=["xlsx", "xls"])
 file_app_bm = st.sidebar.file_uploader("3. File Data Aplikasi Belanja Modal (Excel)", type=["xlsx", "xls"])
 
-def clean_number_indonesia(series):
+def clean_number_id(series):
+    """Mengubah format rupiah Indonesia (Rp.118.102.000,00 atau 796.755.869,00) menjadi Float"""
     if series is None:
-        return pd.Series(0)
+        return pd.Series(0.0)
     
     s = series.astype(str).str.strip()
-    s = s.str.replace('Rp', '', regex=False).str.replace(' ', '', regex=False)
+    s = s.str.replace('Rp.', '', regex=False).str.replace('Rp', '', regex=False).str.replace(' ', '', regex=False)
     
     def parse_val(val):
+        if not val or val.lower() == 'nan' or val == 'None' or val == '-':
+            return 0.0
         try:
             if ',' in val and '.' in val:
                 val = val.replace('.', '').replace(',', '.')
             elif ',' in val:
                 val = val.replace(',', '.')
-            elif '.' in val and len(val.split('.')[-1]) != 2:
-                val = val.replace('.', '')
+            elif '.' in val:
+                # Jika format ribuan dengan titik (contoh: 118.102.000)
+                parts = val.split('.')
+                if len(parts[-1]) != 2:
+                    val = val.replace('.', '')
             return float(val)
         except:
             return 0.0
 
     return s.apply(parse_val).fillna(0.0)
 
-def find_header_and_read(file):
+def read_lra_file(file):
+    """Membaca Foto 2: Laporan Realisasi LRA"""
     xl = pd.ExcelFile(file)
-    sheet = xl.sheet_names[0]
-    df_raw = pd.read_excel(file, sheet_name=sheet)
+    df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0])
     
-    header_row = 0
-    for idx, row in df_raw.head(20).iterrows():
-        row_vals = [str(v).lower() for v in row.dropna().values]
-        if any('kode' in v or 'rekening' in v or 'realisasi' in v or 'pagu' in v for v in row_vals):
-            header_row = idx
+    # Cari baris header yang berisi "Kode Rekening" atau "Nilai SP2D"
+    header_idx = 0
+    for idx, row in df_raw.head(15).iterrows():
+        row_str = ' '.join(row.dropna().astype(str)).lower()
+        if 'kode rekening' in row_str or 'nilai sp2d' in row_str or 'realisasi' in row_str:
+            header_idx = idx
             break
             
-    df_clean = pd.read_excel(file, sheet_name=sheet, skiprows=header_row)
-    df_clean = df_clean.dropna(how='all')
-    return df_clean
+    df = pd.read_excel(file, sheet_name=xl.sheet_names[0], skiprows=header_idx)
+    
+    # Ambil kolom spesifik sesuai Foto 2
+    col_kode = [c for c in df.columns if 'kode rekening' in str(c).lower()]
+    col_nama = [c for c in df.columns if 'nama rekening' in str(c).lower()]
+    col_nilai = [c for c in df.columns if 'nilai sp2d' in str(c).lower() or 'nilai realisasi' in str(c).lower()]
+    col_skpd = [c for c in df.columns if 'nama skpd' in str(c).lower()]
+
+    kode_col = col_kode[0] if col_kode else df.columns[0]
+    nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
+    nilai_col = col_nilai[0] if col_nilai else df.columns[-1]
+    skpd_col = col_skpd[0] if col_skpd else None
+
+    df['Kode_Clean'] = df[kode_col].astype(str).str.strip()
+    df['Nilai_LRA_Num'] = clean_number_id(df[nilai_col])
+    
+    return df, kode_col, nama_col, nilai_col, skpd_col
+
+def read_rak_file(file):
+    """Membaca Foto 3: Master RAK Belanja Modal"""
+    xl = pd.ExcelFile(file)
+    df = pd.read_excel(file, sheet_name=xl.sheet_names[0])
+    
+    # Sesuai Foto 3: Header ada di baris pertama
+    col_kode = [c for c in df.columns if 'kode' in str(c).lower()]
+    col_nama = [c for c in df.columns if 'nama' in str(c).lower() or 'rekening' in str(c).lower()]
+    col_pagu = [c for c in df.columns if 'pagu' in str(c).lower() or 'anggaran' in str(c).lower() or 'nilai' in str(c).lower()]
+
+    kode_col = col_kode[0] if col_kode else df.columns[0]
+    nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
+    pagu_col = col_pagu[0] if col_pagu else None
+
+    df['Kode_Clean'] = df[kode_col].astype(str).str.strip()
+    if pagu_col:
+        df['Anggaran_RAK_Num'] = clean_number_id(df[pagu_col])
+    else:
+        df['Anggaran_RAK_Num'] = 0.0
+        
+    return df, kode_col, nama_col, pagu_col
+
+def read_app_bm_file(file):
+    """Membaca Foto 1: Rincian Pengadaan Aset (Aplikasi Belanja Modal)"""
+    xl = pd.ExcelFile(file)
+    df_raw = pd.read_excel(file, sheet_name=xl.sheet_names[0])
+    
+    # Cari baris header yang berisi "KODE", "URAAN", "PENGADAAN"
+    header_idx = 0
+    for idx, row in df_raw.head(15).iterrows():
+        row_str = ' '.join(row.dropna().astype(str)).lower()
+        if 'kode' in row_str and ('uraian' in row_str or 'pengadaan' in row_str):
+            header_idx = idx
+            break
+            
+    df = pd.read_excel(file, sheet_name=xl.sheet_names[0], skiprows=header_idx)
+    
+    # Sesuaikan dengan Foto 1 (Kolom KODE, URAIAN, PENGADAAN)
+    col_kode = [c for c in df.columns if 'kode' in str(c).lower()]
+    col_nilai = [c for c in df.columns if 'pengadaan' in str(c).lower() or 'aset' in str(c).lower()]
+
+    kode_col = col_kode[0] if col_kode else df.columns[0]
+    nilai_col = col_nilai[0] if col_nilai else df.columns[2]
+
+    df['Kode_Clean'] = df[kode_col].astype(str).str.strip()
+    df['Nilai_App_Num'] = clean_number_id(df[nilai_col])
+    
+    # Filter hanya baris yang merupakan Kode Rekening (mengandung titik, bukan nomor urut 1, 2, 3)
+    df = df[df['Kode_Clean'].str.contains(r'\.', na=False)].copy()
+    
+    return df, kode_col, nilai_col
 
 if file_lra and file_rak and file_app_bm:
     try:
-        # Load raw dataframes
-        df_lra = find_header_and_read(file_lra)
-        df_rak = find_header_and_read(file_rak)
-        df_app = find_header_and_read(file_app_bm)
+        df_lra, lra_k, lra_n, lra_val, col_lra_skpd = read_lra_file(file_lra)
+        df_rak, rak_k, rak_n, rak_p = read_rak_file(file_rak)
+        df_app, app_k, app_val = read_app_bm_file(file_app_bm)
 
-        st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ 2. Pemetaan Kolom Excel")
-
-        # 1. Map RAK
-        st.sidebar.subheader("Master RAK")
-        col_rak_kode = st.sidebar.selectbox("Kolom Kode Rekening RAK", df_rak.columns, index=0)
-        col_rak_nama = st.sidebar.selectbox("Kolom Nama Rekening RAK", df_rak.columns, index=min(1, len(df_rak.columns)-1))
-        col_rak_pagu = st.sidebar.selectbox("Kolom Pagu Anggaran RAK", df_rak.columns, index=len(df_rak.columns)-1)
-
-        # 2. Map LRA
-        st.sidebar.subheader("Realisasi LRA")
-        col_lra_kode = st.sidebar.selectbox("Kolom Kode Rekening LRA", df_lra.columns, index=0)
-        col_lra_nama = st.sidebar.selectbox("Kolom Nama Rekening LRA", df_lra.columns, index=min(1, len(df_lra.columns)-1))
-        col_lra_nilai = st.sidebar.selectbox("Kolom Realisasi Rp LRA", df_lra.columns, index=len(df_lra.columns)-1)
-        col_lra_skpd = st.sidebar.selectbox("Kolom SKPD (Opsional)", [None] + list(df_lra.columns), index=0)
-
-        # 3. Map App BM
-        st.sidebar.subheader("Aplikasi Belanja Modal")
-        col_app_kode = st.sidebar.selectbox("Kolom Kode Rekening App BM", df_app.columns, index=0)
-        col_app_nilai = st.sidebar.selectbox("Kolom Nilai Rp App BM", df_app.columns, index=len(df_app.columns)-1)
-
-        # Process Data
-        df_rak['Kode_Clean'] = df_rak[col_rak_kode].astype(str).str.strip()
-        df_rak['Anggaran_RAK_Num'] = clean_number_indonesia(df_rak[col_rak_pagu])
-
-        df_lra['Kode_Clean'] = df_lra[col_lra_kode].astype(str).str.strip()
-        df_lra['Nilai_LRA_Num'] = clean_number_indonesia(df_lra[col_lra_nilai])
-
-        # Filter Belanja Modal (5.2)
+        # Filter Belanja Modal (5.2) di LRA
         df_bm_lra = df_lra[df_lra['Kode_Clean'].str.startswith('5.2')].copy()
         if len(df_bm_lra) == 0:
             df_bm_lra = df_lra.copy()
@@ -95,15 +139,12 @@ if file_lra and file_rak and file_app_bm:
             Transaksi_LRA=('Nilai_LRA_Num', 'count')
         ).reset_index()
 
-        df_app['Kode_Clean'] = df_app[col_app_kode].astype(str).str.strip()
-        df_app['Nilai_App_Num'] = clean_number_indonesia(df_app[col_app_nilai])
-
         rekap_app = df_app.groupby('Kode_Clean').agg(
             Nilai_Aplikasi_BM=('Nilai_App_Num', 'sum')
         ).reset_index()
 
-        # Merge
-        df_compare = pd.merge(df_rak[['Kode_Clean', col_rak_nama, 'Anggaran_RAK_Num']], 
+        # Merge Master RAK + Realisasi LRA + App Belanja Modal
+        df_compare = pd.merge(df_rak[['Kode_Clean', rak_n, 'Anggaran_RAK_Num']], 
                               rekap_lra, on='Kode_Clean', how='outer')
         df_compare = pd.merge(df_compare, rekap_app, on='Kode_Clean', how='outer')
 
@@ -114,9 +155,12 @@ if file_lra and file_rak and file_app_bm:
         df_compare['Selisih (LRA vs App BM)'] = df_compare['Realisasi_LRA'] - df_compare['Nilai_Aplikasi_BM']
         df_compare['Sisa_Anggaran_RAK'] = df_compare['Anggaran_RAK'] - df_compare['Realisasi_LRA']
 
+        # Hapus baris yang kodenya bukan format rekening (mencegah nomor urut '1', '2' masuk)
+        df_compare = df_compare[df_compare['Kode_Clean'].str.contains(r'\.', na=False)].copy()
+
         st.sidebar.success("✅ Berhasil memproses data!")
 
-        # Metrics
+        # Visualisasi Ringkasan Total
         st.markdown("---")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Pagu RAK", f"Rp {df_compare['Anggaran_RAK'].sum():,.0f}")
@@ -124,12 +168,15 @@ if file_lra and file_rak and file_app_bm:
         m3.metric("Total Aplikasi BM", f"Rp {df_compare['Nilai_Aplikasi_BM'].sum():,.0f}")
         m4.metric("Selisih (LRA vs App)", f"Rp {df_compare['Selisih (LRA vs App BM)'].sum():,.0f}")
 
-        # Tabs
-        tab1, tab2, tab3 = st.tabs(["⚖️ Pembanding 3 Data", "🏢 Realisasi LRA per SKPD", "📑 Detail Transaksi"])
+        # Tampilan Tabel Hasil
+        tab1, tab2, tab3 = st.tabs(["⚖️ Pembanding 3 Data", "🏢 Realisasi LRA per SKPD", "📑 Detail Transaksi LRA"])
 
         with tab1:
             st.subheader("Tabel Pembanding: RAK vs Realisasi LRA vs Aplikasi Belanja Modal")
-            st.dataframe(df_compare[['Kode_Clean', col_rak_nama, 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], use_container_width=True)
+            st.dataframe(
+                df_compare[['Kode_Clean', rak_n, 'Anggaran_RAK', 'Realisasi_LRA', 'Nilai_Aplikasi_BM', 'Selisih (LRA vs App BM)', 'Sisa_Anggaran_RAK']], 
+                use_container_width=True
+            )
 
         with tab2:
             st.subheader("Rekap Realisasi Belanja Modal per SKPD")
@@ -140,13 +187,13 @@ if file_lra and file_rak and file_app_bm:
                 ).reset_index().sort_values(by='Total_Realisasi', ascending=False)
                 st.dataframe(group_skpd, use_container_width=True)
             else:
-                st.info("Pilih kolom SKPD di sidebar kiri untuk menampilkan rekap per SKPD.")
+                st.info("Kolom SKPD tidak terdeteksi pada file LRA.")
 
         with tab3:
             st.subheader("Detail Transaksi LRA")
             st.dataframe(df_bm_lra, use_container_width=True)
 
-        # Download
+        # Download Excel
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -165,6 +212,6 @@ if file_lra and file_rak and file_app_bm:
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memproses data: {e}")
 elif file_lra or file_rak or file_app_bm:
-    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk memulai pembandingan.")
+    st.info("Silakan unggah ketiga file Excel di sidebar kiri untuk mulai membandingkan.")
 else:
     st.info("Silakan unggah ketiga file Excel di sidebar kiri.")
