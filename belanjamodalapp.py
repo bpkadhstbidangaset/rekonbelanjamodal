@@ -17,7 +17,6 @@ def clean_kode_rekening(kode):
     """Pembersih Kode Rekening Ekstrem: Menghapus spasi tersembunyi, petik, dan karakter aneh"""
     if pd.isna(kode) or kode is None:
         return ""
-    # Hapus spasi tak kasat mata (\xa0), spasi biasa, petik, dan newline
     s = str(kode).replace('\xa0', '').replace("'", "").replace('"', '').strip()
     s = re.sub(r'\s+', '', s)
     return s
@@ -33,6 +32,10 @@ def parse_indonesian_number(val):
     if not val_str or val_str.lower() in ['nan', 'none', '-', '']:
         return 0.0
     
+    # Jika teks terlihat seperti kode rekening (punya banyak titik dan angka berpola), jangan jadikan nilai
+    if len(re.findall(r'\.', val_str)) >= 2:
+        return 0.0
+
     val_clean = re.sub(r'[^\d\.,]', '', val_str)
     if not val_clean:
         return 0.0
@@ -70,8 +73,8 @@ def read_lra_file(file):
     
     col_kode = [c for c in df.columns if 'kode rekening' in c.lower()]
     col_nama = [c for c in df.columns if 'nama rekening' in c.lower()]
-    col_nilai = [c for c in df.columns if 'nilai sp2d' in c.lower() or 'nilai realisasi' in c.lower()]
-    col_skpd = [c for c in df.columns if 'nama skpd' in c.lower()]
+    col_nilai = [c for c in df.columns if 'nilai sp2d' in c.lower() or 'nilai realisasi' in c.lower() or 'realisasi' in c.lower()]
+    col_skpd = [c for c in df.columns if 'nama skpd' in c.lower() or 'skpd' in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
@@ -87,8 +90,8 @@ def read_rak_file(file):
     df = find_header_and_read(file, ['kode', 'rekening', 'kategori aset'])
     
     col_kode = [c for c in df.columns if 'kode' in c.lower()]
-    col_nama = [c for c in df.columns if 'nama' in c.lower() or 'rekening' in c.lower()]
-    col_pagu = [c for c in df.columns if 'pagu' in c.lower() or 'anggaran' in c.lower() or 'nilai' in c.lower()]
+    col_nama = [c for c in df.columns if 'nama' in c.lower() or 'rekening' in c.lower() or 'uraian' in c.lower()]
+    col_pagu = [c for c in df.columns if 'pagu' in c.lower() or 'anggaran' in c.lower() or 'nilai' in c.lower() or 'jumlah' in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
     nama_col = col_nama[0] if col_nama else (df.columns[1] if len(df.columns)>1 else df.columns[0])
@@ -100,13 +103,16 @@ def read_rak_file(file):
     return df, kode_col, nama_col, pagu_col
 
 def read_app_bm_file(file):
-    df = find_header_and_read(file, ['kode', 'uraian', 'pengadaan'])
+    df = find_header_and_read(file, ['kode', 'uraian', 'pengadaan', 'nilai'])
     
     col_kode = [c for c in df.columns if 'kode' in c.lower()]
-    col_nilai = [c for c in df.columns if 'pengadaan' in c.lower() or 'aset' in c.lower()]
+    
+    # Cari spesifik kolom nilai/pengadaan, abaikan kolom kode
+    col_nilai = [c for c in df.columns if ('pengadaan' in c.lower() or 'aset' in c.lower() or 'nilai' in c.lower() or 'harga' in c.lower() or 'total' in c.lower()) and 'kode' not in c.lower()]
 
     kode_col = col_kode[0] if col_kode else df.columns[0]
-    nilai_col = col_nilai[0] if col_nilai else df.columns[2]
+    # Jika tidak ketemu, default ambil kolom paling kanan/terakhir
+    nilai_col = col_nilai[0] if col_nilai else df.columns[-1]
 
     df['Kode_Clean'] = df[kode_col].apply(clean_kode_rekening)
     df['Nilai_App_Num'] = df[nilai_col].apply(parse_indonesian_number)
