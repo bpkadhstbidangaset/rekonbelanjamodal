@@ -46,29 +46,25 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2) secara ketat
+# Helper membaca Excel SKPD (Foto 2)
 def parse_skpd_strict(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     
-    # Cari letak baris header
     header_idx = None
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'KODE' in row_str and ('PENGADAAN' in row_str or 'ASET' in row_str or 'URAIAN' in row_str):
+        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str or 'ASET' in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if header_idx is not None else pd.read_excel(file)
-    df.columns = [str(c).strip().upper() for c in df.columns]
+    df.columns = [str(c).strip() for c in df.columns]
 
     # Filter baris non-data (Header/Subtotal/Total/Penomoran)
     ignore_keywords = ['JUMLAH', 'TOTAL', 'SUBTOTAL', 'KODE', 'URAIAN', '1', '2', '3', '4', '5']
-    
-    # Hapus baris jika kolom pertama mengandung kata kunci tersebut
     first_col = df.columns[0]
     df = df[~df[first_col].astype(str).str.strip().str.upper().isin(ignore_keywords)]
 
-    # Hapus baris yang mengandung teks 'JUMLAH' atau 'TOTAL' di mana saja
     mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL|SUBTOTAL').any(), axis=1)
     df = df[~mask_total]
 
@@ -118,7 +114,7 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua SKPD"
 
-        # 3. FILTER TRANSFAKSI SIPD SESUAI RAK
+        # 3. FILTER TRANSAKSI SIPD SESUAI RAK
         col_text_sipd = [c for c in df_sipd_filtered.columns if 'uraian' in c.lower() or 'ref' in c.lower() or 'rekening' in c.lower()]
         
         def match_rak_rekening(row):
@@ -139,16 +135,28 @@ if file_rak and file_sipd and file_skpd:
         sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-3]
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
-        # 5. HITUNG NOMINAL SKPD (Saring secara presisi)
-        candidate_cols = [c for c in df_skpd.columns if any(k in c for k in ['PENGADAAN', 'ASET'])]
-        skpd_target_col = candidate_cols[0] if candidate_cols else df_skpd.columns[2]
+        # 5. PILIH KOLOM NOMINAL SKPD MANUAL/OTOMATIS (DI SIDEBAR)
+        st.sidebar.markdown("---")
+        st.sidebar.header("⚙️ Acuan Kolom Entry SKPD")
         
-        df_skpd['Nominal_Clean'] = df_skpd[skpd_target_col].apply(clean_currency)
-        
-        # Ambil hanya baris transaksi bernilai positif yang nilainya <= total SIPD (untuk membuang baris Total Aset Miliar jika ada)
-        total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
-        df_skpd_bm = df_skpd[(df_skpd['Nominal_Clean'] > 0) & (df_skpd['Nominal_Clean'] <= total_sipd_bm)].copy()
+        # Cari kolom default untuk Pengadaan / Nilai
+        default_skpd_col_idx = 0
+        for i, c in enumerate(df_skpd.columns):
+            if 'PENGADAAN' in c.upper() or 'REK' in c.upper() or 'NILAI' in c.upper():
+                default_skpd_col_idx = i
+                break
 
+        skpd_target_col = st.sidebar.selectbox(
+            "Pilih Kolom Nominal Entry SKPD:",
+            options=list(df_skpd.columns),
+            index=default_skpd_col_idx
+        )
+
+        df_skpd['Nominal_Clean'] = df_skpd[skpd_target_col].apply(clean_currency)
+        df_skpd_bm = df_skpd[df_skpd['Nominal_Clean'] > 0].copy()
+
+        # Totals
+        total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
@@ -168,20 +176,20 @@ if file_rak and file_sipd and file_skpd:
         st.markdown("---")
 
         # TAMPILAN TAB
-        tab1, tab2, tab3 = st.tabs(["🔍 Detail Realisasi SIPD", "📋 Detail Entry SKPD (Rincian Aset)", "📁 Transaksi Dieliminasi"])
+        tab1, tab2, tab3 = st.tabs(["🔍 Detail Realisasi SIPD", "📋 Detail Entry SKPD (Rincian Aset)", "📁 Preview Kolom SKPD Terbaca"])
 
         with tab1:
-            st.subheader(f"3 Transaksi Belanja Modal SIPD - {selected_skpd_target}")
+            st.subheader(f"Transaksi Belanja Modal SIPD - {selected_skpd_target}")
             st.dataframe(df_sipd_bm, use_container_width=True)
 
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
+            st.caption(f"Kolom acuan yang digunakan: **{skpd_target_col}**")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
-            st.subheader("Transaksi Non-Belanja Modal yang Dieliminasi")
-            df_sipd_non_bm = df_sipd_filtered[~df_sipd_filtered['Is_Belanja_Modal']].copy() if col_text_sipd else pd.DataFrame()
-            st.dataframe(df_sipd_non_bm, use_container_width=True)
+            st.subheader("Data Mentah SKPD & Pilihan Kolom")
+            st.dataframe(df_skpd, use_container_width=True)
 
     except Exception as e:
         st.error(f"Terjadi kesalahan pemrosesan data: {e}")
