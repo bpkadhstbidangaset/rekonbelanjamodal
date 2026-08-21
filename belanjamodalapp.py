@@ -53,7 +53,7 @@ def parse_skpd_data(file):
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if ('5.2' in row_str or 'BELANJA' in row_str or 'HARGA' in row_str or 'NILAI' in row_str or 'KODE' in row_str) and 'REKAPITULASI' not in row_str:
+        if ('5.3' in row_str or '5.2' in row_str or 'BELANJA' in row_str or 'HARGA' in row_str or 'NILAI' in row_str or 'KODE' in row_str) and 'REKAPITULASI' not in row_str:
             header_idx = idx
             break
             
@@ -104,12 +104,13 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua SKPD"
 
-        # 3. FILTER TRANSAKSI SIPD SESUAI RAK ATAU PREFIX BELANJA MODAL (5.2)
+        # 3. FILTER TRANSAKSI SIPD: HANYA RAK + KODE 5.3 + TEKS EKSPLISIT "BELANJA MODAL"
         col_text_sipd = [c for c in df_sipd_filtered.columns if 'uraian' in c.lower() or 'ref' in c.lower() or 'rekening' in c.lower()]
         
         def match_sipd_bm(row):
             row_content = ' '.join([str(val) for val in row[col_text_sipd].values if pd.notna(val)])
-            if '5.2' in row_content or 'BELANJA MODAL' in row_content.upper():
+            row_upper = row_content.upper()
+            if '5.3' in row_content or 'BELANJA MODAL' in row_upper:
                 return True
             for rek in valid_rekening_set:
                 if rek in row_content:
@@ -128,11 +129,11 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. FILTER DATA ENTRY SKPD BERDASARKAN RAK ATAU KODE 5.2 / KATA 'BELANJA MODAL'
+        # 5. FILTER DATA ENTRY SKPD: HANYA RAK + KODE 5.3 + TEKS EKSPLISIT "BELANJA MODAL"
         def match_skpd_bm(row):
             row_content = ' '.join([str(val) for val in row.values if pd.notna(val)])
             row_upper = row_content.upper()
-            if '5.2' in row_content or 'BELANJA MODAL' in row_upper:
+            if '5.3' in row_content or 'BELANJA MODAL' in row_upper:
                 return True
             for rek in valid_rekening_set:
                 if rek in row_content:
@@ -194,7 +195,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
-            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}** | Menyertakan seluruh transaksi ber-kode `5.2...` atau terdaftar di RAK.")
+            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}** | Menyertakan transaksi ber-kode `5.3...`, teks 'BELANJA MODAL', atau terdaftar di RAK.")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
