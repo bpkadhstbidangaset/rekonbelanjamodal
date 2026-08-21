@@ -146,15 +146,14 @@ if file_rak and file_sipd and file_skpd:
 
         df_skpd['Is_Belanja_Modal'] = df_skpd.apply(is_leaf_belanja_modal, axis=1)
 
-        # 6. HITUNG TOTAL NOMINAL SKPD (GABUNGAN KOLOM UNNAMED JIKA TERPECAH)
-        # Mencari seluruh kolom angka selain kolom 'SEMUA' dan kolom identitas
+        # 6. HITUNG TOTAL NOMINAL SKPD (SINTAKS AMAN UNTUK PANDAS NEW VERSION)
         num_cols = []
         for c in df_skpd.columns:
             if c not in ['SEMUA', 'Is_Belanja_Modal', 'Nominal_Clean'] and not str(c).startswith('1') and not str(c).startswith('5'):
                 num_cols.append(c)
 
-        # Hitung akumulasi dari semua kolom nominal
-        df_skpd['Nominal_Clean'] = df_skpd[num_cols].applymap(clean_currency).sum(axis=1)
+        # Penggunaan .map() sebagai pengganti .applymap()
+        df_skpd['Nominal_Clean'] = df_skpd[num_cols].apply(lambda s: s.map(clean_currency)).sum(axis=1)
         df_skpd_bm = df_skpd[(df_skpd['Is_Belanja_Modal']) & (df_skpd['Nominal_Clean'] > 0)].copy()
 
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
