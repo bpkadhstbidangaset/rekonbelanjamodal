@@ -46,21 +46,21 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2) tanpa membuang baris data
+# Helper membaca Excel SKPD (Foto 2)
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str or 'NILAI' in row_str or 'HARGA' in row_str:
+        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str or 'HARGA' in row_str or 'NILAI' in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Hapus baris yang merupakan baris total akumulasi
+    # Hapus baris total akumulasi
     mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL').any(), axis=1)
     df = df[~mask_total]
 
@@ -91,7 +91,7 @@ if file_rak and file_sipd and file_skpd:
         valid_rekening_list = df_rak[col_rek_rak[0]].dropna().astype(str).str.strip().tolist() if col_rek_rak else df_rak.iloc[:, 0].dropna().astype(str).str.strip().tolist()
         valid_rekening_set = set(valid_rekening_list)
 
-        # 2. FILTER SKPD TARGET
+        # 2. FILTER SKPD TARGET DARI SIDEBAR
         col_skpd_sipd = [c for c in df_sipd.columns if 'skpd' in c.lower()]
         st.sidebar.markdown("---")
         st.sidebar.header("🎯 Target Rekonsiliasi")
@@ -132,27 +132,22 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. DETEKSI KOLOM NOMINAL SKPD DENGAN PRESISI (SIDEBAR SELECTOR INTEGRATED)
-        st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ Pilih Kolom Nominal SKPD")
+        # 5. PILIH KOLOM NOMINAL SKPD MANUAL DENGAN PEMILIH DI LAYAR UTAMA
+        st.markdown("### 🛠️ Konfigurasi Kolom Entry SKPD")
         
-        # Hitung total nominal tiap kolom di SKPD untuk menentukan opsi default terbaik
-        best_col_idx = 0
-        min_diff = float('inf')
-        col_options = list(df_skpd.columns)
+        # Opsi pilihan default (mencari kolom dengan sum terbesar yang tidak melebihi 10 miliar)
+        default_idx = 0
+        max_sum = -1
+        for i, col in enumerate(df_skpd.columns):
+            s = df_skpd[col].apply(clean_currency).sum()
+            if 100000 < s < 10000000000 and s > max_sum:
+                max_sum = s
+                default_idx = i
 
-        for i, col in enumerate(col_options):
-            col_sum = df_skpd[col].apply(clean_currency).sum()
-            if col_sum > 1000:
-                diff = abs(col_sum - total_sipd_bm)
-                if diff < min_diff:
-                    min_diff = diff
-                    best_col_idx = i
-
-        selected_skpd_col = st.sidebar.selectbox(
-            "Kolom Nominal Terdeteksi:",
-            options=col_options,
-            index=best_col_idx
+        selected_skpd_col = st.selectbox(
+            "👉 **PILIH KOLOM NOMINAL PENERIMAAN / PENGADAAN (Foto 2):**",
+            options=list(df_skpd.columns),
+            index=default_idx
         )
 
         df_skpd['Nominal_Clean'] = df_skpd[selected_skpd_col].apply(clean_currency)
@@ -185,7 +180,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
-            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}**")
+            st.info(f"Kolom acuan saat ini: **{selected_skpd_col}** (Total: Rp {total_skpd_bm:,.2f})")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
