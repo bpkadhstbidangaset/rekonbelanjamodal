@@ -10,7 +10,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling UI
 st.markdown("""
 <style>
     .main-header { font-size:2rem; font-weight:700; color:#1E293B; }
@@ -47,9 +46,11 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2) + Mengeliminasi Baris Total / Subtotal
-def parse_skpd_data(file):
+# Helper membaca Excel SKPD (Foto 2) secara ketat
+def parse_skpd_strict(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
+    
+    # Cari letak baris header
     header_idx = None
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
@@ -59,15 +60,18 @@ def parse_skpd_data(file):
             
     df = pd.read_excel(file, skiprows=header_idx) if header_idx is not None else pd.read_excel(file)
     df.columns = [str(c).strip().upper() for c in df.columns]
+
+    # Filter baris non-data (Header/Subtotal/Total/Penomoran)
+    ignore_keywords = ['JUMLAH', 'TOTAL', 'SUBTOTAL', 'KODE', 'URAIAN', '1', '2', '3', '4', '5']
     
-    # Eliminasi baris header penomoran (1, 2, 3, 4) dan baris Total/Jumlah
+    # Hapus baris jika kolom pertama mengandung kata kunci tersebut
     first_col = df.columns[0]
-    df = df[~df[first_col].astype(str).str.strip().isin(['1', '2', '3', '4', '5', 'JUMLAH', 'TOTAL'])]
-    
-    # Filter baris yang mengandung kata 'JUMLAH' atau 'TOTAL' di seluruh kolom
-    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL').any(), axis=1)
+    df = df[~df[first_col].astype(str).str.strip().str.upper().isin(ignore_keywords)]
+
+    # Hapus baris yang mengandung teks 'JUMLAH' atau 'TOTAL' di mana saja
+    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL|SUBTOTAL').any(), axis=1)
     df = df[~mask_total]
-    
+
     return df
 
 # Helper membaca Excel SIPD (Foto 1)
@@ -86,23 +90,17 @@ def parse_sipd_data(file):
 # --- PROSES UTAMA ---
 if file_rak and file_sipd and file_skpd:
     try:
-        # Load Raw Data
         df_rak = pd.read_excel(file_rak) if file_rak.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file_rak)
         df_sipd = parse_sipd_data(file_sipd)
-        df_skpd = parse_skpd_data(file_skpd)
+        df_skpd = parse_skpd_strict(file_skpd)
 
-        # 1. EKSTRAKSI KODE REKENING BELANJA MODAL DARI RAK
+        # 1. AMBIL KODE REKENING DARI RAK
         col_rek_rak = [c for c in df_rak.columns if 'REKENING' in str(c).upper() or 'KODE' in str(c).upper()]
-        if col_rek_rak:
-            valid_rekening_list = df_rak[col_rek_rak[0]].dropna().astype(str).str.strip().tolist()
-        else:
-            valid_rekening_list = df_rak.iloc[:, 0].dropna().astype(str).str.strip().tolist()
-
+        valid_rekening_list = df_rak[col_rek_rak[0]].dropna().astype(str).str.strip().tolist() if col_rek_rak else df_rak.iloc[:, 0].dropna().astype(str).str.strip().tolist()
         valid_rekening_set = set(valid_rekening_list)
 
-        # 2. FILTER SKPD DARI SIPD
+        # 2. FILTER SKPD TARGET
         col_skpd_sipd = [c for c in df_sipd.columns if 'skpd' in c.lower()]
-        
         st.sidebar.markdown("---")
         st.sidebar.header("🎯 Target Rekonsiliasi")
         
@@ -114,17 +112,13 @@ if file_rak and file_sipd and file_skpd:
                     default_index = idx
                     break
                     
-            selected_skpd_target = st.sidebar.selectbox(
-                "Pilih SKPD:",
-                options=list_skpd,
-                index=default_index
-            )
+            selected_skpd_target = st.sidebar.selectbox("Pilih SKPD:", options=list_skpd, index=default_index)
             df_sipd_filtered = df_sipd[df_sipd[col_skpd_sipd[0]] == selected_skpd_target].copy()
         else:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua SKPD"
 
-        # 3. FILTER SIPD SESUAI RAK
+        # 3. FILTER TRANSFAKSI SIPD SESUAI RAK
         col_text_sipd = [c for c in df_sipd_filtered.columns if 'uraian' in c.lower() or 'ref' in c.lower() or 'rekening' in c.lower()]
         
         def match_rak_rekening(row):
@@ -145,17 +139,16 @@ if file_rak and file_sipd and file_skpd:
         sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-3]
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
-        # 5. HITUNG NOMINAL SKPD (BERSIHKAN DAN HANYA HITUNG ITEM RINCIAN)
-        candidate_cols = [c for c in df_skpd.columns if any(k in c for k in ['PENGADAAN', 'ASET', '3', '4'])]
+        # 5. HITUNG NOMINAL SKPD (Saring secara presisi)
+        candidate_cols = [c for c in df_skpd.columns if any(k in c for k in ['PENGADAAN', 'ASET'])]
         skpd_target_col = candidate_cols[0] if candidate_cols else df_skpd.columns[2]
         
         df_skpd['Nominal_Clean'] = df_skpd[skpd_target_col].apply(clean_currency)
         
-        # Saring hanya baris dengan nominal > 0 yang bukan merupakan akumulasi total
-        df_skpd_bm = df_skpd[df_skpd['Nominal_Clean'] > 0].copy()
-
-        # Totals
+        # Ambil hanya baris transaksi bernilai positif yang nilainya <= total SIPD (untuk membuang baris Total Aset Miliar jika ada)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
+        df_skpd_bm = df_skpd[(df_skpd['Nominal_Clean'] > 0) & (df_skpd['Nominal_Clean'] <= total_sipd_bm)].copy()
+
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
