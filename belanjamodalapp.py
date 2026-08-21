@@ -146,15 +146,18 @@ if file_rak and file_sipd and file_skpd:
 
         df_skpd['Is_Belanja_Modal'] = df_skpd.apply(is_leaf_belanja_modal, axis=1)
 
-        # 6. HITUNG TOTAL NOMINAL SKPD (SINTAKS AMAN UNTUK PANDAS NEW VERSION)
-        num_cols = []
-        for c in df_skpd.columns:
-            if c not in ['SEMUA', 'Is_Belanja_Modal', 'Nominal_Clean'] and not str(c).startswith('1') and not str(c).startswith('5'):
-                num_cols.append(c)
+        # 6. HITUNG NOMINAL SKPD PERSISI TERBARU
+        # Otomatis deteksi semua kolom yang berisi angka nominal rupiah
+        cols_to_exclude = [df_skpd.columns[0], df_skpd.columns[1], 'Is_Belanja_Modal', 'SEMUA']
+        potential_num_cols = [c for c in df_skpd.columns if c not in cols_to_exclude]
 
-        # Penggunaan .map() sebagai pengganti .applymap()
-        df_skpd['Nominal_Clean'] = df_skpd[num_cols].apply(lambda s: s.map(clean_currency)).sum(axis=1)
-        df_skpd_bm = df_skpd[(df_skpd['Is_Belanja_Modal']) & (df_skpd['Nominal_Clean'] > 0)].copy()
+        if potential_num_cols:
+            df_skpd['Nominal_Clean'] = df_skpd[potential_num_cols].apply(lambda s: s.map(clean_currency)).sum(axis=1)
+        else:
+            df_skpd['Nominal_Clean'] = df_skpd.iloc[:, -1].apply(clean_currency)
+
+        # HANYA gunakan filter 'Is_Belanja_Modal' murni
+        df_skpd_bm = df_skpd[df_skpd['Is_Belanja_Modal']].copy()
 
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
