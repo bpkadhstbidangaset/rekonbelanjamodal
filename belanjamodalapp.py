@@ -46,7 +46,7 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2) dengan deteksi Header Otomatis
+# Helper membaca Excel SKPD (Foto 2)
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     
@@ -66,7 +66,7 @@ def parse_skpd_data(file):
 
     return df
 
-# Helper membaca Excel SIPD (Foto 1) dengan deteksi Header Otomatis
+# Helper membaca Excel SIPD (Foto 1)
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -104,7 +104,7 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua SKPD"
 
-        # 3. FILTER SIPD (HANYA KODE 5.2/5.3 ATAU TEKS "BELANJA MODAL")
+        # 3. FILTER SIPD
         col_text_sipd = [c for c in df_sipd_filtered.columns if 'uraian' in c.lower() or 'ref' in c.lower() or 'rekening' in c.lower()]
         
         def match_sipd_bm(row):
@@ -129,17 +129,14 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. FILTER TEPAT DATA SKPD (HANYA AMBIL BARIS REKENING BELANJA MODAL 5.2 / 5.3)
-        # Menolak baris Program/Kegiatan (1.03...) dan Belanja Operasional (5.1.02...)
+        # 5. FILTER HANYA BARIS REKENING BELANJA 5.2 / 5.3
         def is_leaf_belanja_modal(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             first_col = str(row.iloc[0]).strip()
             
-            # Abaikan baris nomor header tabel (1, 2, 3...)
             if first_col.isdigit() and len(first_col) <= 2:
                 return False
                 
-            # Hanya ambil baris yang berawalan 5.2 atau 5.3 atau mengandung kata 'Belanja Modal'
             if first_col.startswith('5.2') or first_col.startswith('5.3'):
                 return True
             if 'BELANJA MODAL' in row_str.upper() and not first_col.startswith('1.'):
@@ -149,25 +146,15 @@ if file_rak and file_sipd and file_skpd:
 
         df_skpd['Is_Belanja_Modal'] = df_skpd.apply(is_leaf_belanja_modal, axis=1)
 
-        # 6. PEMILIH KOLOM NOMINAL DI SIDEBAR
-        st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ Pengaturan Kolom SKPD")
-        
-        col_options = [c for c in df_skpd.columns if c not in ['Is_Belanja_Modal', 'Nominal_Clean']]
-        
-        default_idx = 0
-        for i, col in enumerate(col_options):
-            if '3' in str(col) or 'HARGA' in str(col).upper() or 'NILAI' in str(col).upper():
-                default_idx = i
-                break
+        # 6. HITUNG TOTAL NOMINAL SKPD (GABUNGAN KOLOM UNNAMED JIKA TERPECAH)
+        # Mencari seluruh kolom angka selain kolom 'SEMUA' dan kolom identitas
+        num_cols = []
+        for c in df_skpd.columns:
+            if c not in ['SEMUA', 'Is_Belanja_Modal', 'Nominal_Clean'] and not str(c).startswith('1') and not str(c).startswith('5'):
+                num_cols.append(c)
 
-        selected_skpd_col = st.sidebar.selectbox(
-            "Kolom Nominal SKPD (Foto 2):",
-            options=col_options,
-            index=default_idx
-        )
-
-        df_skpd['Nominal_Clean'] = df_skpd[selected_skpd_col].apply(clean_currency)
+        # Hitung akumulasi dari semua kolom nominal
+        df_skpd['Nominal_Clean'] = df_skpd[num_cols].applymap(clean_currency).sum(axis=1)
         df_skpd_bm = df_skpd[(df_skpd['Is_Belanja_Modal']) & (df_skpd['Nominal_Clean'] > 0)].copy()
 
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
@@ -197,7 +184,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
-            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}** | Hanya menyaring rincian akun Belanja Modal `5.2...` / `5.3...` (Baris Program/Kegiatan diabaikan).")
+            st.caption("Nilai nominal dihitung otomatis dari gabungan seluruh kolom sumber dana agar tidak ada angka yang terpecah/terlewat.")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
