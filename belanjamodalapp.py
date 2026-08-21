@@ -46,21 +46,21 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2) tanpa membuang data riil
+# Helper membaca Excel SKPD (Foto 2)
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str:
+        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str or 'HARGA' in row_str or 'NILAI' in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Bersihkan hanya baris yang berisi kata 'JUMLAH' atau 'TOTAL' saja
+    # Buang baris akumulasi Total / Jumlah
     mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL').any(), axis=1)
     df = df[~mask_total]
 
@@ -132,22 +132,23 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. DETEKSI OTOMATIS KOLOM ENTRY SKPD
-        # Cari kolom yang memiliki total nominal sama/mendekati total SIPD atau mengandung kata 'PENGADAAN'/'ASET'
+        # 5. DETEKSI PINTAR KOLOM NOMINAL SKPD (Mencari total nominal paling relevan)
         best_skpd_col = None
+        min_diff = float('inf')
+
         for col in df_skpd.columns:
             cleaned_vals = df_skpd[col].apply(clean_currency)
-            if cleaned_vals.sum() > 0:
-                if 'PENGADAAN' in col.upper() or 'ASET' in col.upper() or abs(cleaned_vals.sum() - total_sipd_bm) < 1.0:
+            col_sum = cleaned_vals.sum()
+            
+            # Cari kolom yang total nilainya paling dekat dengan total SIPD (mengabaikan angka kecil seperti kuantitas/1.00)
+            if col_sum > 1000:
+                diff = abs(col_sum - total_sipd_bm)
+                if diff < min_diff:
+                    min_diff = diff
                     best_skpd_col = col
-                    break
-        
-        if not best_skpd_col:
-            # Fallback ke kolom berangka pertama
-            for col in df_skpd.columns:
-                if df_skpd[col].apply(clean_currency).sum() > 0:
-                    best_skpd_col = col
-                    break
+
+        if not best_skpd_col and len(df_skpd.columns) > 0:
+            best_skpd_col = df_skpd.columns[-1]
 
         df_skpd['Nominal_Clean'] = df_skpd[best_skpd_col].apply(clean_currency) if best_skpd_col else 0.0
         df_skpd_bm = df_skpd[df_skpd['Nominal_Clean'] > 0].copy()
@@ -159,7 +160,7 @@ if file_rak and file_sipd and file_skpd:
 
         # Dashboard Metrik
         col1, col2, col3 = st.columns(3)
-        col1.metric(f"Realisasi SIPD (Belanja Modal)", f"Rp {total_sipd_bm:,.2f}")
+        col1.metric("Realisasi SIPD (Belanja Modal)", f"Rp {total_sipd_bm:,.2f}")
         col2.metric("Entry SKPD (Rincian Aset)", f"Rp {total_skpd_bm:,.2f}")
         col3.metric(
             "Selisih Rekonsiliasi Belanja Modal", 
@@ -180,7 +181,7 @@ if file_rak and file_sipd and file_skpd:
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
             if best_skpd_col:
-                st.caption(f"Kolom acuan nominal yang digunakan: **{best_skpd_col}**")
+                st.caption(f"Kolom acuan nominal terdeteksi: **{best_skpd_col}**")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
