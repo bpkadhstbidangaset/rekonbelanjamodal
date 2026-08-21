@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
+# Custom Styling UI
 st.markdown("""
 <style>
     .main-header { font-size:2rem; font-weight:700; color:#1E293B; }
@@ -28,7 +28,7 @@ file_rak = st.sidebar.file_uploader("1. RAK Rekening Belanja Modal (Acuan)", typ
 file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD (Foto 1)", type=['xlsx', 'xls', 'csv'])
 file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset (Foto 2)", type=['xlsx', 'xls', 'csv'])
 
-# Helper pembersihan nominal angka
+# Helper pembersihan nominal Rupiah secara robust
 def clean_currency(val):
     if pd.isna(val):
         return 0.0
@@ -47,54 +47,79 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel dengan aman (mencegah error float/string)
-def read_excel_smart(file):
+# Helper pembacaan Excel khusus Data Entry SKPD (Foto 2)
+def parse_skpd_data(file):
     if file.name.endswith('.csv'):
-        return pd.read_csv(file)
-    
-    # Baca mentah tanpa header
-    df_raw = pd.read_excel(file, header=None)
-    header_row = 0
-    
-    for idx, row in df_raw.iterrows():
-        # Ubah setiap sel menjadi string dengan aman untuk menghindari error float
-        row_str = ' '.join([str(val).lower() for val in row.values if pd.notna(val)])
-        # Deteksi kata kunci header
-        if any(key in row_str for key in ['kode', 'uraian', 'debit', 'pengadaan', 'rekening', 'kategori']):
-            header_row = idx
-            break
+        df = pd.read_csv(file)
+    else:
+        # Baca mentah
+        df_raw = pd.read_excel(file, header=None)
+        header_row = None
+        
+        # Cari baris yang mengandung kata 'PENGADAAN' atau 'ASET'
+        for idx, row in df_raw.iterrows():
+            row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
+            if 'PENGADAAN' in row_str or 'ASET' in row_str or 'URAIAN' in row_str:
+                header_row = idx
+                break
+        
+        if header_row is not None:
+            df = pd.read_excel(file, skiprows=header_row)
+        else:
+            df = pd.read_excel(file)
             
-    df = pd.read_excel(file, skiprows=header_row)
-    df.columns = [str(col).strip() for col in df.columns]
+    df.columns = [str(c).strip().upper() for c in df.columns]
     return df
 
-# --- PROSES DATA ---
+# Helper pembacaan Excel Data Realisasi SIPD (Foto 1)
+def parse_sipd_data(file):
+    if file.name.endswith('.csv'):
+        df = pd.read_csv(file)
+    else:
+        df_raw = pd.read_excel(file, header=None)
+        header_row = 0
+        for idx, row in df_raw.iterrows():
+            row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
+            if 'DEBIT' in row_str or 'REK' in row_str or 'NO. BUKTI' in row_str:
+                header_row = idx
+                break
+        df = pd.read_excel(file, skiprows=header_row)
+        
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+# --- PROSES UTAMA ---
 if file_rak and file_sipd and file_skpd:
     try:
-        df_rak = read_excel_smart(file_rak)
-        df_sipd = read_excel_smart(file_sipd)
-        df_skpd = read_excel_smart(file_skpd)
+        df_rak = pd.read_excel(file_rak) if file_rak.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file_rak)
+        df_sipd = parse_sipd_data(file_sipd)
+        df_skpd = parse_skpd_data(file_skpd)
 
-        st.success("✅ File berhasil dibaca dan diproses!")
+        st.success("✅ Semua file berhasil diunggah dan dibaca!")
 
-        # 1. EVALUASI SIPD (Foto 1: Ambil kolom 'Debit')
+        # 1. EVALUASI SIPD (Debit)
         col_debit = [c for c in df_sipd.columns if c.lower() == 'debit']
         if not col_debit:
-            col_debit = [c for c in df_sipd.columns if 'debit' in c.lower() or 'realisasi' in c.lower()]
+            col_debit = [c for c in df_sipd.columns if 'debit' in c.lower()]
         
         sipd_col_target = col_debit[0] if col_debit else df_sipd.columns[-3]
         df_sipd['Nominal_Clean'] = df_sipd[sipd_col_target].apply(clean_currency)
 
-        # 2. EVALUASI SKPD (Foto 2: Ambil kolom 'PENGADAAN' atau 'ASET')
-        col_skpd_target = [c for c in df_skpd.columns if c.lower() in ['pengadaan', 'aset']]
-        if not col_skpd_target:
-            col_skpd_target = [c for c in df_skpd.columns if 'pengadaan' in c.lower() or 'aset' in c.lower()]
-            
-        skpd_col_selected = col_skpd_target[0] if col_skpd_target else df_skpd.columns[2]
-        df_skpd['Nominal_Clean'] = df_skpd[skpd_col_selected].apply(clean_currency)
+        # 2. EVALUASI SKPD (Pengadaan / Aset)
+        col_pengadaan = [c for c in df_skpd.columns if 'PENGADAAN' in c]
+        col_aset = [c for c in df_skpd.columns if 'ASET' in c]
+        
+        if col_pengadaan:
+            skpd_col_selected = col_pengadaan[0]
+        elif col_aset:
+            skpd_col_selected = col_aset[0]
+        else:
+            # Mengambil kolom ke-3 atau ke-4 jika nama tidak terdeteksi
+            skpd_col_selected = df_skpd.columns[2] if len(df_skpd.columns) > 2 else df_skpd.columns[-1]
 
-        # Filter baris penomoran header (misal baris '1', '2', '3', '4', '5')
+        # Bersihkan baris yang mengandung angka penomoran header '1', '2', '3', '4', '5'
         df_skpd = df_skpd[~df_skpd[skpd_col_selected].astype(str).str.strip().isin(['1', '2', '3', '4', '5'])]
+        df_skpd['Nominal_Clean'] = df_skpd[skpd_col_selected].apply(clean_currency)
 
         # Hitung Nilai Total KPI
         total_sipd = df_sipd['Nominal_Clean'].sum()
@@ -119,9 +144,9 @@ if file_rak and file_sipd and file_skpd:
 
         with tab1:
             st.subheader("Data Realisasi SIPD Terdeteksi")
-            st.caption(f"Kolom acuan nominal yang digunakan: **{sipd_col_target}**")
+            st.caption(f"Kolom acuan nominal SIPD: **{sipd_col_target}** | Kolom acuan nominal SKPD: **{skpd_col_selected}**")
             
-            # Filter unit SKPD jika kolom tersedia
+            # Filter unit SKPD
             skpd_cols = [c for c in df_sipd.columns if 'skpd' in c.lower()]
             if skpd_cols:
                 unit_list = df_sipd[skpd_cols[0]].dropna().unique()
@@ -135,16 +160,16 @@ if file_rak and file_sipd and file_skpd:
             st.dataframe(df_rak, use_container_width=True)
 
         with tab3:
-            st.subheader("Pemeriksaan Kolom & Pembersihan Data")
+            st.subheader("Pemeriksaan Kolom Terbaca")
             c1, c2 = st.columns(2)
             with c1:
-                st.caption(f"Data SIPD (Kolom Target: {sipd_col_target})")
-                st.dataframe(df_sipd[['Nominal_Clean'] + [col for col in df_sipd.columns if col != 'Nominal_Clean']].head(10))
+                st.caption(f"Data SIPD (Target: {sipd_col_target})")
+                st.dataframe(df_sipd[['Nominal_Clean'] + [c for c in df_sipd.columns if c != 'Nominal_Clean']].head(10))
             with c2:
-                st.caption(f"Data SKPD (Kolom Target: {skpd_col_selected})")
-                st.dataframe(df_skpd[['Nominal_Clean'] + [col for col in df_skpd.columns if col != 'Nominal_Clean']].head(10))
+                st.caption(f"Data SKPD (Target: {skpd_col_selected})")
+                st.dataframe(df_skpd[['Nominal_Clean'] + [c for c in df_skpd.columns if c != 'Nominal_Clean']].head(10))
 
     except Exception as e:
-        st.error(f"Terjadi kesalahan pemrosesan: {e}")
+        st.error(f"Terjadi kesalahan pemrosesan data: {e}")
 else:
     st.warning("👈 Unggah ketiga file Excel/CSV di menu sebelah kiri untuk memulai rekonsiliasi.")
