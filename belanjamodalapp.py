@@ -46,33 +46,33 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Excel SKPD (Foto 2)
+# Helper membaca Excel SKPD (Foto 2) dengan deteksi Header Otomatis
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'KODE' in row_str or 'PENGADAAN' in row_str or 'URAIAN' in row_str or 'HARGA' in row_str or 'NILAI' in row_str:
+        if ('5.2' in row_str or 'BELANJA' in row_str or 'HARGA' in row_str or 'NILAI' in row_str or 'KODE' in row_str) and 'REKAPITULASI' not in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Abaikan baris akumulasi TOTAL / JUMLAH / SUBTOTAL
-    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL|SUBTOTAL|SUB TOTAL').any(), axis=1)
+    # Abaikan baris akumulasi TOTAL / JUMLAH
+    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH|TOTAL|SUBTOTAL').any(), axis=1)
     df = df[~mask_total]
 
     return df
 
-# Helper membaca Excel SIPD (Foto 1)
+# Helper membaca Excel SIPD (Foto 1) dengan deteksi Header Otomatis
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'DEBIT' in row_str or 'SKPD' in row_str or 'NO. BUKTI' in row_str or 'URAIAN' in row_str:
+        if ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
             header_idx = idx
             break
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
@@ -89,41 +89,35 @@ if file_rak and file_sipd and file_skpd:
         # 1. AMBIL KODE REKENING DARI RAK
         col_rek_rak = [c for c in df_rak.columns if 'REKENING' in str(c).upper() or 'KODE' in str(c).upper()]
         valid_rekening_list = df_rak[col_rek_rak[0]].dropna().astype(str).str.strip().tolist() if col_rek_rak else df_rak.iloc[:, 0].dropna().astype(str).str.strip().tolist()
-        # Buat set kode rekening dan versi clean (tanpa titik)
         valid_rekening_set = set(valid_rekening_list)
-        valid_rekening_clean = set([r.replace('.', '').replace(' ', '') for r in valid_rekening_list if len(r) > 2])
 
         # 2. FILTER SKPD TARGET
-        col_skpd_sipd = [c for c in df_sipd.columns if 'skpd' in c.lower()]
+        col_skpd_sipd = [c for c in df_sipd.columns if 'skpd' in c.lower() or 'dinas' in c.lower() or 'opd' in c.lower()]
         st.sidebar.markdown("---")
         st.sidebar.header("🎯 Target Rekonsiliasi")
         
         if col_skpd_sipd:
             list_skpd = sorted(df_sipd[col_skpd_sipd[0]].dropna().unique().tolist())
-            default_index = 0
-            for idx, name in enumerate(list_skpd):
-                if 'BPKPD' in name.upper() or 'KEUANGAN' in name.upper():
-                    default_index = idx
-                    break
-                    
-            selected_skpd_target = st.sidebar.selectbox("Pilih SKPD:", options=list_skpd, index=default_index)
+            selected_skpd_target = st.sidebar.selectbox("Pilih SKPD:", options=list_skpd)
             df_sipd_filtered = df_sipd[df_sipd[col_skpd_sipd[0]] == selected_skpd_target].copy()
         else:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua SKPD"
 
-        # 3. FILTER TRANSAKSI SIPD SESUAI RAK
+        # 3. FILTER TRANSAKSI SIPD SESUAI RAK ATAU PREFIX BELANJA MODAL (5.2)
         col_text_sipd = [c for c in df_sipd_filtered.columns if 'uraian' in c.lower() or 'ref' in c.lower() or 'rekening' in c.lower()]
         
-        def match_rak_rekening(row):
+        def match_sipd_bm(row):
             row_content = ' '.join([str(val) for val in row[col_text_sipd].values if pd.notna(val)])
+            if '5.2' in row_content or 'BELANJA MODAL' in row_content.upper():
+                return True
             for rek in valid_rekening_set:
                 if rek in row_content:
                     return True
             return False
 
         if col_text_sipd:
-            df_sipd_filtered['Is_Belanja_Modal'] = df_sipd_filtered.apply(match_rak_rekening, axis=1)
+            df_sipd_filtered['Is_Belanja_Modal'] = df_sipd_filtered.apply(match_sipd_bm, axis=1)
             df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Is_Belanja_Modal']].copy()
         else:
             df_sipd_bm = df_sipd_filtered.copy()
@@ -134,35 +128,29 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. FILTER DATA ENTRY SKPD BERDASARKAN RAK
-        def match_skpd_rak(row):
+        # 5. FILTER DATA ENTRY SKPD BERDASARKAN RAK ATAU KODE 5.2 / KATA 'BELANJA MODAL'
+        def match_skpd_bm(row):
             row_content = ' '.join([str(val) for val in row.values if pd.notna(val)])
-            row_content_clean = row_content.replace('.', '').replace(' ', '')
+            row_upper = row_content.upper()
+            if '5.2' in row_content or 'BELANJA MODAL' in row_upper:
+                return True
             for rek in valid_rekening_set:
                 if rek in row_content:
                     return True
-            for rek in valid_rekening_clean:
-                if rek in row_content_clean:
-                    return True
             return False
 
-        df_skpd['Is_Belanja_Modal'] = df_skpd.apply(match_skpd_rak, axis=1)
-        
-        # Jika tidak ada yang cocok dengan kode RAK, pakai seluruh data SKPD
-        df_skpd_bm_base = df_skpd[df_skpd['Is_Belanja_Modal']].copy() if df_skpd['Is_Belanja_Modal'].any() else df_skpd.copy()
+        df_skpd['Is_Belanja_Modal'] = df_skpd.apply(match_skpd_bm, axis=1)
+        df_skpd_bm_base = df_skpd[df_skpd['Is_Belanja_Modal']].copy()
 
         # 6. PEMILIH KOLOM NOMINAL DI SIDEBAR
         st.sidebar.markdown("---")
         st.sidebar.header("⚙️ Pengaturan Kolom SKPD")
         
-        col_options = list(df_skpd.columns)
+        col_options = [c for c in df_skpd.columns if c != 'Is_Belanja_Modal']
         
-        # Cari kolom dengan nilai sum mendekati Realisasi SIPD (Rp 847,571,869)
         best_col_idx = 0
         min_diff = float('inf')
         for i, col in enumerate(col_options):
-            if col == 'Is_Belanja_Modal':
-                continue
             s = df_skpd_bm_base[col].apply(clean_currency).sum()
             if s > 0:
                 diff = abs(s - total_sipd_bm)
@@ -172,12 +160,12 @@ if file_rak and file_sipd and file_skpd:
 
         selected_skpd_col = st.sidebar.selectbox(
             "Kolom Nominal SKPD (Foto 2):",
-            options=[c for c in col_options if c != 'Is_Belanja_Modal'],
+            options=col_options,
             index=best_col_idx
         )
 
         df_skpd['Nominal_Clean'] = df_skpd[selected_skpd_col].apply(clean_currency)
-        df_skpd_bm = df_skpd[(df_skpd['Is_Belanja_Modal']) & (df_skpd['Nominal_Clean'] > 0)].copy() if df_skpd['Is_Belanja_Modal'].any() else df_skpd[df_skpd['Nominal_Clean'] > 0].copy()
+        df_skpd_bm = df_skpd[(df_skpd['Is_Belanja_Modal']) & (df_skpd['Nominal_Clean'] > 0)].copy()
 
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
@@ -206,7 +194,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terdeteksi ({len(df_skpd_bm)} Item)")
-            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}** | Hanya menampilkan transaksi berdasar acuan Kode Rekening RAK.")
+            st.caption(f"Kolom nominal aktif: **{selected_skpd_col}** | Menyertakan seluruh transaksi ber-kode `5.2...` atau terdaftar di RAK.")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
