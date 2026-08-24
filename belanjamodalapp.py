@@ -12,10 +12,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Khusus Bubble Card & Header Modern
+# Custom CSS Bubble Card & Auto-Sum Info Box
 st.markdown("""
 <style>
-    /* Top Bar Header */
     .app-topbar {
         background: #FFFFFF;
         padding: 16px 24px;
@@ -39,7 +38,6 @@ st.markdown("""
         font-size: 1.25rem;
     }
 
-    /* Bubble Stat Cards */
     .bubble-card {
         background: #FFFFFF;
         border-radius: 20px;
@@ -94,7 +92,6 @@ st.markdown("""
         text-overflow: ellipsis;
     }
     
-    /* Pill Tags */
     .pill-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -108,7 +105,6 @@ st.markdown("""
     .pill-red { background: #FEE2E2; color: #991B1B; }
     .pill-green { background: #DCFCE7; color: #15803D; }
 
-    /* Action Box Diagnosa */
     .action-box-red {
         background-color: #FEF2F2;
         border-left: 5px solid #EF4444;
@@ -129,6 +125,19 @@ st.markdown("""
         border-radius: 12px;
         padding: 16px 20px;
         margin-bottom: 16px;
+    }
+
+    /* Floating Auto-Sum Box ala Excel */
+    .calc-box {
+        background-color: #0F172A;
+        color: #FFFFFF;
+        padding: 12px 18px;
+        border-radius: 10px;
+        font-size: 0.9rem;
+        margin-top: 10px;
+        display: flex;
+        gap: 20px;
+        align-items: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -498,7 +507,7 @@ if file_rak and file_sipd and file_skpd:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # === TAB 2: DIAGNOSA DETAIL SELISIH ===
+        # === TAB 2: DIAGNOSA DETAIL SELISIH (DILENGKAPI FITUR DRAG / SELECT AUTO-SUM) ===
         with tab_investigasi:
             st.markdown("#### **Diagnosa Per Kode Rekening yang Berselisih**")
             
@@ -576,6 +585,8 @@ if file_rak and file_sipd and file_skpd:
                 tot_u_skpd = df_unmatched_skpd['Nominal SKPD'].sum() if len(df_unmatched_skpd) > 0 else 0.0
                 tot_u_sipd = df_unmatched_sipd['Nominal Realisasi'].sum() if len(df_unmatched_sipd) > 0 else 0.0
 
+                st.caption("💡 **Tips Interaktif**: Anda bisa memilih / men-drag baris tabel (klik centang di baris kiri) untuk otomatis menjumlahkan total nominal baris yang dipilih.")
+
                 c_sel1, c_sel2 = st.columns(2)
                 
                 # SISI KIRI: DATA ENTRY SIMBADA
@@ -590,23 +601,42 @@ if file_rak and file_sipd and file_skpd:
                     """, unsafe_allow_html=True)
                     
                     if len(df_unmatched_skpd) > 0:
-                        # Gabungkan Kolom No. Dokumen dan Uraian agar tidak None
                         def format_simbada_desc(row):
                             text_parts = []
                             for c in df_unmatched_skpd.columns:
                                 if c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK']:
                                     v = row[c]
                                     if pd.notna(v) and str(v).strip() not in ['', 'nan', 'None', 'NaN']:
-                                        # Abaikan angka murni yang sama persis dengan nominal
                                         if not (isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit() and len(v) > 6)):
                                             text_parts.append(str(v).strip())
                             return ' — '.join(text_parts) if text_parts else "Rincian Pengadaan SIMBADA"
 
                         df_u_skpd_clean = pd.DataFrame({
                             'Rincian Pengadaan di SIMBADA': df_unmatched_skpd.apply(format_simbada_desc, axis=1),
-                            'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah)
+                            'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah),
+                            '_raw_val': df_unmatched_skpd['Nominal SKPD'].values
                         })
-                        st.dataframe(df_u_skpd_clean, use_container_width=True, hide_index=True)
+                        
+                        # Dataframe Interaktif dengan Pemilihan Baris
+                        skpd_selection = st.dataframe(
+                            df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai Tercatat']], 
+                            use_container_width=True, 
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="multi-row",
+                            key="skpd_sel_box"
+                        )
+                        
+                        # Perhitungan Otomatis Baris yang Dipilih / Di-drag
+                        sel_skpd_rows = skpd_selection.selection.rows
+                        if sel_skpd_rows:
+                            sel_sum_skpd = df_u_skpd_clean.iloc[sel_skpd_rows]['_raw_val'].sum()
+                            st.markdown(f"""
+                            <div class="calc-box">
+                                <div>📌 <b>{len(sel_skpd_rows)} Baris Terpilih</b></div>
+                                <div>∑ Total: <b>{format_rupiah(sel_sum_skpd)}</b></div>
+                            </div>
+                            """, unsafe_allow_html=True)
                     else:
                         st.success("✅ Semua data SIMBADA sudah klop dengan LRA.")
 
@@ -631,9 +661,30 @@ if file_rak and file_sipd and file_skpd:
                         df_u_sipd_clean = pd.DataFrame({
                             'Tanggal': tgl_series.astype(str),
                             'Keterangan Realisasi SP2D': ket_series.astype(str),
-                            'Nilai SP2D': df_unmatched_sipd['Nominal Realisasi'].apply(format_rupiah)
+                            'Nilai SP2D': df_unmatched_sipd['Nominal Realisasi'].apply(format_rupiah),
+                            '_raw_val': df_unmatched_sipd['Nominal Realisasi'].values
                         })
-                        st.dataframe(df_u_sipd_clean, use_container_width=True, hide_index=True)
+                        
+                        # Dataframe Interaktif dengan Pemilihan Baris
+                        sipd_selection = st.dataframe(
+                            df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai SP2D']], 
+                            use_container_width=True, 
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="multi-row",
+                            key="sipd_sel_box"
+                        )
+
+                        # Perhitungan Otomatis Baris yang Dipilih / Di-drag
+                        sel_sipd_rows = sipd_selection.selection.rows
+                        if sel_sipd_rows:
+                            sel_sum_sipd = df_u_sipd_clean.iloc[sel_sipd_rows]['_raw_val'].sum()
+                            st.markdown(f"""
+                            <div class="calc-box">
+                                <div>📌 <b>{len(sel_sipd_rows)} Baris Terpilih</b></div>
+                                <div>∑ Total: <b>{format_rupiah(sel_sum_sipd)}</b></div>
+                            </div>
+                            """, unsafe_allow_html=True)
                     else:
                         st.success("✅ Semua realisasi LRA SP2D sudah tercatat di SIMBADA.")
 
