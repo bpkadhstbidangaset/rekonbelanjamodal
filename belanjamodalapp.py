@@ -24,8 +24,14 @@ st.divider()
 # --- SIDEBAR UPLOAD ---
 st.sidebar.header("📁 Upload File Data")
 file_rak = st.sidebar.file_uploader("1. RAK Rekening Belanja Modal (Acuan)", type=['xlsx', 'xls', 'csv'])
-file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD", type=['xlsx', 'xls', 'csv'])
-file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset", type=['xlsx', 'xls', 'csv'])
+file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD (Foto 1)", type=['xlsx', 'xls', 'csv'])
+file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset (Foto 2)", type=['xlsx', 'xls', 'csv'])
+
+# Helper normalisasi string kode agar bebas dari spasi tersembunyi/karakter non-breaking
+def clean_text_code(val):
+    if pd.isna(val):
+        return ""
+    return str(val).replace('\xa0', ' ').strip()
 
 # Helper pembersihan nominal Rupiah
 def clean_currency(val):
@@ -46,13 +52,13 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Acuan RAK (Mendeteksi Header Dinamis)
+# Helper membaca Acuan RAK (Foto Excel Acuan)
 def parse_rak_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if 'KODE REKENING' in row_str or 'KODE KATEGORI' in row_str or 'REKENING' in row_str:
+        if 'KODE REKENING' in row_str or 'KODE KATEGORI' in row_str:
             header_idx = idx
             break
             
@@ -60,7 +66,7 @@ def parse_rak_data(file):
     df.columns = [str(c).strip().upper() for c in df.columns]
     return df
 
-# Helper membaca Excel SKPD
+# Helper membaca Excel SKPD (Foto 2)
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -72,13 +78,13 @@ def parse_skpd_data(file):
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
-    
+
     # Abaikan baris akumulasi TOTAL / JUMLAH
     mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH TOTAL|GRAND TOTAL|SUBTOTAL').any(), axis=1)
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel SIPD
+# Helper membaca Excel SIPD (Foto 1)
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -99,14 +105,16 @@ if file_rak and file_sipd and file_skpd:
         df_skpd = parse_skpd_data(file_skpd)
 
         # 1. AMBIL KODE REKENING & KODE KATEGORI DARI ACUAN RAK
-        col_rek = [c for c in df_rak.columns if 'KODE REKENING' in c or 'REKENING' in c]
-        col_kat = [c for c in df_rak.columns if 'KODE KATEGORI' in c or 'KATEGORI' in c]
+        col_kode_rek = [c for c in df_rak.columns if 'KODE' in c and 'REK' in c]
+        col_kode_kat = [c for c in df_rak.columns if 'KODE' in c and 'KAT' in c]
 
-        list_kode_rekening = df_rak[col_rek[0]].dropna().astype(str).str.strip().tolist() if col_rek else []
-        list_kode_kategori = df_rak[col_kat[0]].dropna().astype(str).str.strip().tolist() if col_kat else []
+        col_rek_target = col_kode_rek[0] if col_kode_rek else df_rak.columns[-1]
+        col_kat_target = col_kode_kat[0] if col_kode_kat else df_rak.columns[0]
 
-        # Gabungkan semua kode referensi acuan
-        valid_acuan_set = set(list_kode_rekening + list_kode_kategori)
+        list_kode_rekening = df_rak[col_rek_target].dropna().apply(clean_text_code).tolist()
+        list_kode_kategori = df_rak[col_kat_target].dropna().apply(clean_text_code).tolist()
+
+        valid_acuan_set = {k for k in (list_kode_rekening + list_kode_kategori) if len(k) > 3}
 
         # 2. FILTER SKPD TARGET PADA SIPD
         col_skpd_sipd = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd'])]
@@ -122,21 +130,15 @@ if file_rak and file_sipd and file_skpd:
             selected_skpd_target = "Semua SKPD"
 
         # 3. FILTER SIPD BERDASARKAN ACUAN RAK
-        col_text_sipd = [c for c in df_sipd_filtered.columns if any(k in c.lower() for k in ['uraian', 'ref', 'rekening', 'kode'])]
-        
         def match_sipd_rak(row):
-            row_content = ' '.join([str(val) for val in row[col_text_sipd].values if pd.notna(val)])
-            # Cek apakah kode rekening acuan ada di baris transaksi SIPD
+            row_str = ' '.join([clean_text_code(v) for v in row.values if pd.notna(v)])
             for code in valid_acuan_set:
-                if code and code in row_content:
+                if code in row_str:
                     return True
             return False
 
-        if col_text_sipd and valid_acuan_set:
-            df_sipd_filtered['Is_Acuan_RAK'] = df_sipd_filtered.apply(match_sipd_rak, axis=1)
-            df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Is_Acuan_RAK']].copy()
-        else:
-            df_sipd_bm = df_sipd_filtered.copy()
+        df_sipd_filtered['Is_Acuan_RAK'] = df_sipd_filtered.apply(match_sipd_rak, axis=1)
+        df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Is_Acuan_RAK']].copy()
 
         # 4. HITUNG NOMINAL REALISASI SIPD
         col_debit = [c for c in df_sipd_bm.columns if c.lower() == 'debit']
@@ -146,9 +148,9 @@ if file_rak and file_sipd and file_skpd:
 
         # 5. FILTER SKPD BERDASARKAN ACUAN RAK
         def match_skpd_rak(row):
-            row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
+            row_str = ' '.join([clean_text_code(v) for v in row.values if pd.notna(v)])
             for code in valid_acuan_set:
-                if code and code in row_str:
+                if code in row_str:
                     return True
             return False
 
@@ -190,6 +192,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian SKPD Cocok Acuan ({len(df_skpd_bm)} Baris)")
+            st.caption("Nilai nominal dihitung dari kolom sumber dana terkait.")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
