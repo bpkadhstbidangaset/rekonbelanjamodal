@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Khusus Bubble Card & Header Modern (Aman untuk Sidebar)
+# Custom CSS Khusus Bubble Card & Header Modern
 st.markdown("""
 <style>
     /* Top Bar Header */
@@ -381,7 +381,7 @@ if file_rak and file_sipd and file_skpd:
         </div>
         """, unsafe_allow_html=True)
 
-        # === 4 BUBBLE STAT CARDS (PERSIS GAMBAR) ===
+        # === 4 BUBBLE STAT CARDS ===
         k1, k2, k3, k4 = st.columns(4)
         
         with k1:
@@ -590,14 +590,20 @@ if file_rak and file_sipd and file_skpd:
                     """, unsafe_allow_html=True)
                     
                     if len(df_unmatched_skpd) > 0:
-                        cols_text = [c for c in df_unmatched_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
-                        best_col = cols_text[0] if cols_text else df_unmatched_skpd.columns[1]
-                        for c in cols_text:
-                            if df_unmatched_skpd[c].astype(str).str.len().mean() > df_unmatched_skpd[best_col].astype(str).str.len().mean():
-                                best_col = c
+                        # Gabungkan Kolom No. Dokumen dan Uraian agar tidak None
+                        def format_simbada_desc(row):
+                            text_parts = []
+                            for c in df_unmatched_skpd.columns:
+                                if c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK']:
+                                    v = row[c]
+                                    if pd.notna(v) and str(v).strip() not in ['', 'nan', 'None', 'NaN']:
+                                        # Abaikan angka murni yang sama persis dengan nominal
+                                        if not (isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit() and len(v) > 6)):
+                                            text_parts.append(str(v).strip())
+                            return ' — '.join(text_parts) if text_parts else "Rincian Pengadaan SIMBADA"
 
                         df_u_skpd_clean = pd.DataFrame({
-                            'Rincian Pengadaan di SIMBADA': df_unmatched_skpd[best_col].astype(str),
+                            'Rincian Pengadaan di SIMBADA': df_unmatched_skpd.apply(format_simbada_desc, axis=1),
                             'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah)
                         })
                         st.dataframe(df_u_skpd_clean, use_container_width=True, hide_index=True)
