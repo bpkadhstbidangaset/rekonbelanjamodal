@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import re
 
 # Set Konfigurasi Halaman
 st.set_page_config(
@@ -27,11 +28,11 @@ file_rak = st.sidebar.file_uploader("1. RAK Rekening Belanja Modal (Acuan)", typ
 file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD (Foto 1)", type=['xlsx', 'xls', 'csv'])
 file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset (Foto 2)", type=['xlsx', 'xls', 'csv'])
 
-# Helper normalisasi string kode agar bebas dari spasi tersembunyi/karakter non-breaking
-def clean_text_code(val):
+# Helper normalisasi kode (Hapus titik & karakter non-alfanumerik agar format fleksibel)
+def normalize_code(val):
     if pd.isna(val):
         return ""
-    return str(val).replace('\xa0', ' ').strip()
+    return re.sub(r'[^a-zA-Z0-9]', '', str(val).strip())
 
 # Helper pembersihan nominal Rupiah
 def clean_currency(val):
@@ -52,7 +53,7 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper membaca Acuan RAK (Foto Excel Acuan)
+# Helper membaca Acuan RAK
 def parse_rak_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -66,25 +67,25 @@ def parse_rak_data(file):
     df.columns = [str(c).strip().upper() for c in df.columns]
     return df
 
-# Helper membaca Excel SKPD (Foto 2)
+# Helper membaca Excel SKPD
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if ('5.2' in row_str or '5.3' in row_str or 'BELANJA' in row_str or 'HARGA' in row_str or 'NILAI' in row_str or 'KODE' in row_str) and 'REKAPITULASI' not in row_str:
+        if any(k in row_str for k in ['5.2', '5.3', 'JENIS BELANJA', 'REKENING', 'SEMUA']) and 'REKAPITULASI' not in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Abaikan baris akumulasi TOTAL / JUMLAH
+    # Hapus baris akumulasi TOTAL / JUMLAH
     mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH TOTAL|GRAND TOTAL|SUBTOTAL').any(), axis=1)
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel SIPD (Foto 1)
+# Helper membaca Excel SIPD
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -104,40 +105,49 @@ if file_rak and file_sipd and file_skpd:
         df_sipd = parse_sipd_data(file_sipd)
         df_skpd = parse_skpd_data(file_skpd)
 
-        # 1. AMBIL KODE REKENING & KODE KATEGORI DARI ACUAN RAK
+        # 1. AMBIL KODE DARI FILE RAK ACUAN
         col_kode_rek = [c for c in df_rak.columns if 'KODE' in c and 'REK' in c]
         col_kode_kat = [c for c in df_rak.columns if 'KODE' in c and 'KAT' in c]
 
         col_rek_target = col_kode_rek[0] if col_kode_rek else df_rak.columns[-1]
         col_kat_target = col_kode_kat[0] if col_kode_kat else df_rak.columns[0]
 
-        list_kode_rekening = df_rak[col_rek_target].dropna().apply(clean_text_code).tolist()
-        list_kode_kategori = df_rak[col_kat_target].dropna().apply(clean_text_code).tolist()
+        list_kode_rekening = df_rak[col_rek_target].dropna().astype(str).tolist()
+        list_kode_kategori = df_rak[col_kat_target].dropna().astype(str).tolist()
 
-        valid_acuan_set = {k for k in (list_kode_rekening + list_kode_kategori) if len(k) > 3}
+        # Simpan raw list & normalized set
+        raw_acuan_list = [k.strip() for k in (list_kode_rekening + list_kode_kategori) if len(k.strip()) > 3]
+        norm_acuan_set = {normalize_code(k) for k in raw_acuan_list if len(normalize_code(k)) >= 5}
 
-        # 2. FILTER SKPD TARGET PADA SIPD
-        col_skpd_sipd = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd'])]
+        # 2. FILTER PILIHAN SKPD PADA SIPD
+        col_skpd_sipd = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd', 'unit'])]
         st.sidebar.markdown("---")
         st.sidebar.header("🎯 Target Rekonsiliasi")
         
         if col_skpd_sipd:
             list_skpd = sorted(df_sipd[col_skpd_sipd[0]].dropna().unique().tolist())
-            selected_skpd_target = st.sidebar.selectbox("Pilih SKPD:", options=list_skpd)
+            selected_skpd_target = st.sidebar.selectbox("Pilih SKPD Target:", options=list_skpd)
             df_sipd_filtered = df_sipd[df_sipd[col_skpd_sipd[0]] == selected_skpd_target].copy()
         else:
             df_sipd_filtered = df_sipd.copy()
-            selected_skpd_target = "Semua SKPD"
+            selected_skpd_target = "Semua Data SIPD"
 
-        # 3. FILTER SIPD BERDASARKAN ACUAN RAK
-        def match_sipd_rak(row):
-            row_str = ' '.join([clean_text_code(v) for v in row.values if pd.notna(v)])
-            for code in valid_acuan_set:
+        # 3. FILTER SIPD DENGAN ACUAN RAK
+        def match_sipd_row(row):
+            row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
+            row_norm = normalize_code(row_str)
+            
+            # Cek string asli
+            for code in raw_acuan_list:
                 if code in row_str:
+                    return True
+            # Cek string ternormalisasi (mengatasi beda format titik)
+            for n_code in norm_acuan_set:
+                if n_code in row_norm:
                     return True
             return False
 
-        df_sipd_filtered['Is_Acuan_RAK'] = df_sipd_filtered.apply(match_sipd_rak, axis=1)
+        df_sipd_filtered['Is_Acuan_RAK'] = df_sipd_filtered.apply(match_sipd_row, axis=1)
         df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Is_Acuan_RAK']].copy()
 
         # 4. HITUNG NOMINAL REALISASI SIPD
@@ -146,31 +156,41 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
         total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
 
-        # 5. FILTER SKPD BERDASARKAN ACUAN RAK
-        def match_skpd_rak(row):
-            row_str = ' '.join([clean_text_code(v) for v in row.values if pd.notna(v)])
-            for code in valid_acuan_set:
-                if code in row_str:
+        # 5. FILTER SKPD DENGAN ACUAN RAK
+        def match_skpd_row(row):
+            first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
+            norm_first = normalize_code(first_cols_str)
+
+            for code in raw_acuan_list:
+                if code in first_cols_str:
+                    return True
+            for n_code in norm_acuan_set:
+                if n_code in norm_first:
                     return True
             return False
 
-        df_skpd['Is_Acuan_RAK'] = df_skpd.apply(match_skpd_rak, axis=1)
+        df_skpd['Is_Acuan_RAK'] = df_skpd.apply(match_skpd_row, axis=1)
         df_skpd_bm = df_skpd[df_skpd['Is_Acuan_RAK']].copy()
 
-        # 6. HITUNG NOMINAL SKPD
-        cols_to_exclude = [df_skpd.columns[0], df_skpd.columns[1], 'Is_Acuan_RAK', 'SEMUA']
-        potential_num_cols = [c for c in df_skpd.columns if c not in cols_to_exclude]
-
-        if potential_num_cols:
-            df_skpd_bm['Nominal_Clean'] = df_skpd_bm[potential_num_cols].apply(lambda s: s.map(clean_currency)).sum(axis=1)
+        # 6. HITUNG NOMINAL SKPD (Mencegah Double Counting)
+        # Prioritaskan kolom 'SEMUA' atau 'TOTAL' atau 'JUMLAH'
+        col_semua = [c for c in df_skpd_bm.columns if c.upper() in ['SEMUA', 'TOTAL', 'JUMLAH', 'NILAI']]
+        
+        if col_semua:
+            df_skpd_bm['Nominal_Clean'] = df_skpd_bm[col_semua[0]].apply(clean_currency)
         else:
-            df_skpd_bm['Nominal_Clean'] = df_skpd_bm.iloc[:, -1].apply(clean_currency)
+            # Jika tidak ada kolom 'SEMUA', ambil kolom angka paling kanan (bukan semua kolom dijumlah)
+            df_skpd_bm['Nominal_Clean'] = df_skpd_bm.iloc[:, -2].apply(clean_currency)
 
         total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
         # TAMPILAN DASHBOARD
-        st.success(f"✅ Rekonsiliasi selesai untuk **{selected_skpd_target}**!")
+        st.success(f"✅ Rekonsiliasi selesai untuk: **{selected_skpd_target}**")
+
+        # Peringatan jika file SKPD tidak sesuai dengan pilihan dropdown
+        if "KESEHATAN" in selected_skpd_target.upper() and ("PUPR" in file_skpd.name.upper() or "PEKERJAAN" in file_skpd.name.upper()):
+            st.warning("⚠️ **Perhatian**: Target SKPD yang dipilih adalah Bidang Kesehatan, tetapi file SKPD yang diunggah adalah file PUPR. Pastikan file SKPD sesuai dengan unit yang dipilih.")
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Realisasi SIPD (Sesuai RAK)", f"Rp {total_sipd_bm:,.2f}")
@@ -192,7 +212,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab2:
             st.subheader(f"Rincian SKPD Cocok Acuan ({len(df_skpd_bm)} Baris)")
-            st.caption("Nilai nominal dihitung dari kolom sumber dana terkait.")
+            st.caption("Nominal diambil langsung dari kolom utama 'SEMUA' / total per baris.")
             st.dataframe(df_skpd_bm, use_container_width=True)
 
         with tab3:
