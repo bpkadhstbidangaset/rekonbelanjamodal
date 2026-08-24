@@ -75,21 +75,29 @@ def parse_rak_data(file):
     df.columns = [str(c).strip().upper() for c in df.columns]
     return df
 
-# Helper membaca Excel SKPD
+# Helper membaca Excel SKPD (Presisi untuk Berbagai Format Header)
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
+    
+    # Cari baris tabel yang memiliki kolom KODE/URAIAN dan PENGADAAN/ASET/SEMUA
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if any(k in row_str for k in ['5.2', '5.3', 'JENIS BELANJA', 'REKENING', 'SEMUA']) and 'REKAPITULASI' not in row_str:
+        # Hindari baris metadata seperti 'JENIS BELANJA : SEMUA'
+        if ('KODE' in row_str and 'URAIAN' in row_str) or ('PENGADAAN' in row_str and 'ASET' in row_str):
+            header_idx = idx
+            break
+        elif 'JENIS BELANJA' in row_str and ':' in row_str:
+            continue
+        elif any(k in row_str for k in ['5.2', '5.3']) and 'PEMERINTAH' not in row_str:
             header_idx = idx
             break
             
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Abaikan baris akumulasi TOTAL / JUMLAH
-    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH TOTAL|GRAND TOTAL|SUBTOTAL').any(), axis=1)
+    # Abaikan baris akumulasi TOTAL / JUMLAH / Tanda Tangan Pejabat
+    mask_total = df.apply(lambda row: row.astype(str).str.upper().str.contains('JUMLAH TOTAL|GRAND TOTAL|SUBTOTAL|T O T A L|PENGURUS BARANG').any(), axis=1)
     df = df[~mask_total]
     return df
 
@@ -149,7 +157,7 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua Data SIPD"
 
-        # 3. IDENTIFIKASI & HITUNG SKPD TERLEBIH DAHULU (ACUAN ITEM YANG DI-ENTRY)
+        # 3. IDENTIFIKASI & HITUNG SKPD TERLEBIH DAHULU
         def get_matched_code(row_str):
             row_norm = normalize_code(row_str)
             for raw_c in valid_raw_codes:
@@ -162,53 +170,58 @@ if file_rak and file_sipd and file_skpd:
                     return n_c
             return None
 
-        def match_skpd(row):
-            first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
-            # Singkirkan akun gaji/pegawai non belanja modal jika ada
-            if '5.1.01' in first_cols_str:
+        # Filter baris rekening spesifik di SKPD (Hanya baris akun leaf 5.2... atau yang cocok di RAK)
+        def match_skpd_row(row):
+            first_col = str(row.iloc[0]).strip()
+            # Abaikan nomor urut biasa (1, 2, 3), Program (5.02.01), Kegiatan (5.02.01.2.09), dll
+            if first_col.count('.') < 3 and not (first_col.startswith('5.2') or first_col.startswith('5.3')):
                 return ""
+            if '5.1.01' in first_col:
+                return ""
+            
+            first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
             matched = get_matched_code(first_cols_str)
             return matched if matched else ""
 
-        df_skpd['Kode Rekening (Acuan)'] = df_skpd.apply(match_skpd, axis=1)
+        df_skpd['Kode Rekening (Acuan)'] = df_skpd.apply(match_skpd_row, axis=1)
         df_skpd_bm = df_skpd[df_skpd['Kode Rekening (Acuan)'] != ""].copy()
 
-        col_semua = [c for c in df_skpd_bm.columns if c.upper() in ['SEMUA', 'TOTAL', 'JUMLAH', 'NILAI']]
-        if col_semua:
-            df_skpd_bm['Nominal SKPD'] = df_skpd_bm[col_semua[0]].apply(clean_currency)
+        # Deteksi kolom nominal SKPD secara cerdas (Cari 'PENGADAAN', 'ASET', 'SEMUA', 'NILAI', atau kolom nominal pertama)
+        col_nom_skpd = [c for c in df_skpd_bm.columns if any(k in c.upper() for k in ['PENGADAAN', 'ASET', 'SEMUA', 'TOTAL', 'JUMLAH', 'NILAI'])]
+        
+        if col_nom_skpd:
+            df_skpd_bm['Nominal SKPD'] = df_skpd_bm[col_nom_skpd[0]].apply(clean_currency)
         else:
-            df_skpd_bm['Nominal SKPD'] = df_skpd_bm.iloc[:, -3].apply(clean_currency)
+            # Fallback ambil kolom numerik terakhir
+            df_skpd_bm['Nominal SKPD'] = df_skpd_bm.iloc[:, -1].apply(clean_currency)
 
-        # Kumpulan kode rekening yang benar-benar diinput oleh SKPD
+        # Kumpulan kode rekening belanja modal yang ada di SKPD
         active_skpd_codes = set(df_skpd_bm['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI & HITUNG SIPD (Hanya rekening yang ada di RAK & di-entry SKPD)
-        def match_sipd(row):
+        # 4. IDENTIFIKASI & HITUNG REALISASI SIPD
+        def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
-            # Jangan masukkan belanja gaji/pegawai rutin
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
                 return ""
             matched = get_matched_code(row_str)
-            # Hanya ambil jika kode rekening tersebut memang masuk daftar entry SKPD
             if matched and matched in active_skpd_codes:
                 return matched
             return ""
 
-        df_sipd_filtered['Kode Rekening (Acuan)'] = df_sipd_filtered.apply(match_sipd, axis=1)
+        df_sipd_filtered['Kode Rekening (Acuan)'] = df_sipd_filtered.apply(match_sipd_row, axis=1)
         df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Kode Rekening (Acuan)'] != ""].copy()
 
         col_debit = [c for c in df_sipd_bm.columns if c.lower() == 'debit']
         sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-4]
         df_sipd_bm['Nominal Realisasi'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
-        # 5. PEMBUATAN TABEL ANALISIS REKONSILIASI
+        # 5. TABEL ANALISIS REKONSILIASI
         grp_sipd = df_sipd_bm.groupby('Kode Rekening (Acuan)')['Nominal Realisasi'].sum().rename('Realisasi SIPD')
         grp_skpd = df_skpd_bm.groupby('Kode Rekening (Acuan)')['Nominal SKPD'].sum().rename('Entry SKPD')
 
-        # Rekonsiliasi hanya untuk kode rekening yang ada di entry SKPD
         df_rekon = pd.concat([grp_sipd, grp_skpd], axis=1).fillna(0)
         df_rekon = df_rekon[df_rekon['Entry SKPD'] > 0].copy()
-        
+
         df_rekon['Selisih'] = df_rekon['Realisasi SIPD'] - df_rekon['Entry SKPD']
         df_rekon['Status'] = df_rekon['Selisih'].apply(
             lambda x: '✅ Sesuai (Balance)' if abs(x) < 1 else ('🔻 Realisasi Lebih Kecil' if x < 0 else '🔺 Realisasi Lebih Besar')
@@ -219,7 +232,7 @@ if file_rak and file_sipd and file_skpd:
         df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi SIPD', 'Entry SKPD', 'Selisih', 'Status']]
         df_rekon = df_rekon.sort_values(by='Selisih', key=abs, ascending=False)
 
-        # Hitung Total Metrik Berdasarkan Hasil Rekonsiliasi Terfilter
+        # Total Metrik
         total_sipd_bm = df_rekon['Realisasi SIPD'].sum()
         total_skpd_bm = df_rekon['Entry SKPD'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
@@ -249,7 +262,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab_rekon:
             st.subheader("📊 Tabel Komparasi Belanja Modal (SIPD vs SKPD)")
-            st.caption("Hanya menampilkan akun Belanja Modal RAK yang di-entry oleh SKPD.")
+            st.caption("Menampilkan akun Belanja Modal RAK yang di-entry oleh SKPD beserta nilai realisasinya di SIPD.")
 
             df_rekon_view = df_rekon.copy()
             df_rekon_view['Realisasi SIPD'] = df_rekon_view['Realisasi SIPD'].apply(format_rupiah)
@@ -272,7 +285,7 @@ if file_rak and file_sipd and file_skpd:
 
         with tab1:
             st.subheader(f"Transaksi Realisasi SIPD Terkait ({len(df_sipd_bm)} Baris)")
-            cols_sipd_clean = [c for c in df_sipd_bm.columns if not c.startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
+            cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
             df_sipd_view = df_sipd_bm[['Kode Rekening (Acuan)'] + cols_sipd_clean + ['Nominal Realisasi']].copy()
             df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
             st.dataframe(df_sipd_view, use_container_width=True, hide_index=True)
@@ -280,28 +293,21 @@ if file_rak and file_sipd and file_skpd:
         with tab2:
             st.subheader(f"Rincian Pengadaan SKPD Terkait ({len(df_skpd_bm)} Baris)")
             df_skpd_view = df_skpd_bm.copy()
-            rename_map = {}
-            if len(df_skpd_view.columns) >= 3:
-                rename_map[df_skpd_view.columns[0]] = "Kode Rekening / Klasifikasi"
-                rename_map[df_skpd_view.columns[1]] = "Uraian Belanja SKPD"
-            if col_semua:
-                rename_map[col_semua[0]] = "Total Anggaran / Realisasi"
             
-            df_skpd_view = df_skpd_view.rename(columns=rename_map)
-            valid_cols_skpd = [c for c in df_skpd_view.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK']]
-            
-            df_skpd_display = df_skpd_view[valid_cols_skpd + ['Nominal SKPD']].copy()
+            # Format kolom agar rapi
+            cols_to_keep = [c for c in df_skpd_view.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
+            df_skpd_display = df_skpd_view[['Kode Rekening (Acuan)'] + cols_to_keep + ['Nominal SKPD']].copy()
             df_skpd_display['Nominal SKPD'] = df_skpd_display['Nominal SKPD'].apply(format_rupiah)
             df_skpd_display = df_skpd_display.rename(columns={'Nominal SKPD': 'Nilai Bersih (Rupiah)'})
 
             st.dataframe(df_skpd_display, use_container_width=True, hide_index=True)
 
         with tab3:
-            st.subheader("Rincian Baris SKPD di Luar Acuan RAK (Tidak Masuk Hitungan)")
-            st.caption("Baris-baris ini merupakan belanja barang/jasa rutin atau header yang tidak terdaftar pada RAK Belanja Modal.")
+            st.subheader("Baris SKPD di Luar Belanja Modal (Induk / Non-BM)")
+            st.caption("Baris-baris ini merupakan header program/kegiatan atau belanja operasional lainnya.")
             
             df_skpd_elim = df_skpd[df_skpd['Kode Rekening (Acuan)'] == ""].copy()
-            cols_elim_clean = [c for c in df_skpd_elim.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Is_Acuan_RAK']]
+            cols_elim_clean = [c for c in df_skpd_elim.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)']]
             df_elim_display = df_skpd_elim[cols_elim_clean].copy()
             
             st.dataframe(df_elim_display, use_container_width=True, hide_index=True)
