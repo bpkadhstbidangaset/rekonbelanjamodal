@@ -12,135 +12,50 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Desain Modern & Rapih
+# Custom CSS yang aman dan tidak merusak komponen Streamlit
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-    
-    * {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-    }
-    
-    /* Background Utama */
-    .stApp {
-        background-color: #F8FAFC;
-    }
-
-    /* Top Bar Header */
-    .app-topbar {
-        background: #FFFFFF;
-        padding: 16px 24px;
-        border-radius: 14px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-        border: 1px solid #E2E8F0;
-    }
-    
-    .breadcrumb-title {
-        color: #64748B;
-        font-size: 0.825rem;
-        font-weight: 500;
-        margin-bottom: 2px;
-    }
-    .breadcrumb-active {
-        color: #0F172A;
-        font-weight: 800;
-        font-size: 1.2rem;
-    }
-
-    /* Stat Cards Modern */
-    .stat-card {
-        background: #FFFFFF;
-        border-radius: 14px;
-        padding: 18px 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-        border: 1px solid #E2E8F0;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-    }
-    .card-header-flex {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-    .icon-badge {
-        width: 38px;
-        height: 38px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-    }
-    .badge-blue-bg { background-color: #EFF6FF; color: #2563EB; }
-    .badge-purple-bg { background-color: #FAF5FF; color: #9333EA; }
-    .badge-red-bg { background-color: #FEF2F2; color: #DC2626; }
-    .badge-green-bg { background-color: #F0FDF4; color: #16A34A; }
-
-    .card-title-text {
-        font-size: 0.8rem;
-        color: #64748B;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-    .card-nominal {
-        font-size: 1.25rem;
-        font-weight: 800;
-        color: #0F172A;
-        margin: 4px 0 8px 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .pill-tag {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        width: fit-content;
-    }
-    .pill-blue { background: #DBEAFE; color: #1E40AF; }
-    .pill-purple { background: #F3E8FF; color: #6B21A8; }
-    .pill-red { background: #FEE2E2; color: #991B1B; }
-    .pill-green { background: #DCFCE7; color: #15803D; }
-
-    /* Box Diagnosa & Alert */
-    .action-card {
-        background: #FFFFFF;
-        border-radius: 14px;
-        padding: 18px;
-        border: 1px solid #E2E8F0;
-        margin-bottom: 18px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-    }
-    
-    /* Styling Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
-        margin-bottom: 12px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 10px;
+    /* Styling Header & Navigasi */
+    .app-header {
         background-color: #FFFFFF;
-        padding: 10px 18px;
+        padding: 16px 20px;
+        border-radius: 12px;
         border: 1px solid #E2E8F0;
-        font-weight: 600;
-        color: #475569;
+        margin-bottom: 20px;
     }
-    .stTabs [aria-selected="true"] {
-        background-color: #2563EB !important;
-        color: #FFFFFF !important;
-        border-color: #2563EB !important;
+    .app-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #0F172A;
+        margin: 0;
+    }
+    .app-subtitle {
+        font-size: 0.85rem;
+        color: #64748B;
+        margin: 0;
+    }
+
+    /* Action Box Diagnosa */
+    .action-box-red {
+        background-color: #FEF2F2;
+        border-left: 4px solid #EF4444;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
+    }
+    .action-box-blue {
+        background-color: #EFF6FF;
+        border-left: 4px solid #3B82F6;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
+    }
+    .action-box-green {
+        background-color: #F0FDF4;
+        border-left: 4px solid #22C55E;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -233,11 +148,11 @@ def parse_sipd_data(file):
 
 # --- SIDEBAR MENU & UPLOAD ---
 with st.sidebar:
-    st.markdown("### 🏛️ **Mesin Rekon Belanja Modal**")
-    st.caption("Aplikasi Pencocokan & Rekonsiliasi Aset")
-    st.markdown("---")
+    st.subheader("⚖️ Mesin Rekon")
+    st.caption("Aplikasi Pencocokan Belanja Modal")
+    st.divider()
     
-    st.markdown("##### 📁 **Upload Dokumen Sumber**")
+    st.write("**📁 Upload Dokumen Sumber**")
     file_rak = st.file_uploader("1. Acuan RAK Belanja Modal", type=['xlsx', 'xls', 'csv'])
     file_sipd = st.file_uploader("2. Data Realisasi Kasda / LRA", type=['xlsx', 'xls', 'csv'])
     file_skpd = st.file_uploader("3. Data Entry SIMBADA", type=['xlsx', 'xls', 'csv'])
@@ -276,8 +191,8 @@ if file_rak and file_sipd and file_skpd:
         col_skpd_sipd = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd', 'unit', 'nama_skpd'])]
         
         with st.sidebar:
-            st.markdown("---")
-            st.markdown("##### 🎯 **Filter SKPD Target**")
+            st.divider()
+            st.write("**🎯 Filter SKPD Target**")
             if col_skpd_sipd:
                 list_skpd = sorted(df_sipd[col_skpd_sipd[0]].dropna().unique().tolist())
                 selected_skpd_target = st.selectbox("Pilih Satuan Kerja / SKPD:", options=list_skpd)
@@ -378,100 +293,46 @@ if file_rak and file_sipd and file_skpd:
         total_skpd_bm = df_rekon['Entry SIMBADA'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
-        # === TOP BAR HEADER ===
+        # === HEADER UTAMA ===
         st.markdown(f"""
-        <div class="app-topbar">
-            <div>
-                <div class="breadcrumb-title">🏠 Beranda / Penatausahaan Aset / Rekonsiliasi Belanja Modal</div>
-                <div class="breadcrumb-active">{selected_skpd_target}</div>
-            </div>
-            <div>
-                <span class="pill-tag {'pill-green' if abs(total_selisih) < 1 else 'pill-red'}" style="font-size:0.85rem; padding: 6px 14px;">
-                    {'● STATUS: BALANCE (SESUAI)' if abs(total_selisih) < 1 else f'● SELISIH: {format_rupiah(total_selisih)}'}
-                </span>
-            </div>
+        <div class="app-header">
+            <div class="app-subtitle">Rekonsiliasi Belanja Modal / {selected_skpd_target}</div>
+            <div class="app-title">🏛️ {selected_skpd_target}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # === 4 STAT CARDS ===
+        # === 4 KARTU METRIK RESMI STREAMLIT (TIDAK AKAN BERTUMPUK) ===
         k1, k2, k3, k4 = st.columns(4)
-        
-        with k1:
-            st.markdown(f"""
-            <div class="stat-card">
-                <div class="card-header-flex">
-                    <span class="card-title-text">Realisasi LRA (Kasda)</span>
-                    <div class="icon-badge badge-blue-bg">🏛️</div>
-                </div>
-                <div class="card-nominal">{format_rupiah(total_sipd_bm)}</div>
-                <span class="pill-tag pill-blue">Kas Daerah Cair</span>
-            </div>
-            """, unsafe_allow_html=True)
+        k1.metric("Realisasi LRA (Kasda)", format_rupiah(total_sipd_bm))
+        k2.metric("Entry SIMBADA (Aset)", format_rupiah(total_skpd_bm))
+        k3.metric("Selisih Bersih", format_rupiah(total_selisih), delta=f"{-total_selisih:,.2f}", delta_color="inverse")
+        k4.metric("Jumlah Rekening", f"{len(df_rekon)} Akun", "Status: Terverifikasi")
 
-        with k2:
-            st.markdown(f"""
-            <div class="stat-card">
-                <div class="card-header-flex">
-                    <span class="card-title-text">Entry SIMBADA (Aset)</span>
-                    <div class="icon-badge badge-purple-bg">📋</div>
-                </div>
-                <div class="card-nominal">{format_rupiah(total_skpd_bm)}</div>
-                <span class="pill-tag pill-purple">Total Terdata SKPD</span>
-            </div>
-            """, unsafe_allow_html=True)
+        st.divider()
 
-        with k3:
-            st.markdown(f"""
-            <div class="stat-card">
-                <div class="card-header-flex">
-                    <span class="card-title-text">Selisih Rekonsiliasi</span>
-                    <div class="icon-badge {'badge-green-bg' if abs(total_selisih) < 1 else 'badge-red-bg'}">⚖️</div>
-                </div>
-                <div class="card-nominal">{format_rupiah(total_selisih)}</div>
-                <span class="pill-tag {'pill-green' if abs(total_selisih) < 1 else 'pill-red'}">
-                    {'Nol (0) Selisih' if abs(total_selisih) < 1 else 'Perlu Penyesuaian'}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with k4:
-            persen_match = (1.0 - abs(total_selisih) / max(total_sipd_bm, total_skpd_bm, 1)) * 100
-            st.markdown(f"""
-            <div class="stat-card">
-                <div class="card-header-flex">
-                    <span class="card-title-text">Akurasi Pencocokan</span>
-                    <div class="icon-badge badge-green-bg">📊</div>
-                </div>
-                <div class="card-nominal">{persen_match:.1f}%</div>
-                <span class="pill-tag pill-green">{len(df_rekon)} Rekening Dianalisis</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
-
-        # === TAMPILAN TAB UTAMA ===
+        # === TAB MENU ===
         tab_rekon, tab_investigasi, tab_grafik, tab1, tab2 = st.tabs([
             "⚖️ Tabel Rekonsiliasi",
             "🔎 Diagnosa & Rincian Selisih",
-            "📊 Grafik Komparasi Rekening",
+            "📊 Grafik Komparasi",
             "🏛️ Data Realisasi LRA", 
             "📋 Data SIMBADA"
         ])
 
         # === TAB 1: REKONSILIASI ===
         with tab_rekon:
-            st.markdown("#### **Tabel Komparasi Belanja Modal (Realisasi LRA vs SIMBADA)**")
+            st.write("##### **Tabel Komparasi Belanja Modal (Realisasi LRA vs SIMBADA)**")
             
             f_col1, f_col2 = st.columns([2, 2])
             with f_col1:
                 filter_status = st.multiselect(
-                    "Status Rekonsiliasi:",
+                    "Filter Status:",
                     options=sorted(df_rekon['Status'].unique()),
                     default=sorted(df_rekon['Status'].unique()),
                     key="f_status_rekon"
                 )
             with f_col2:
-                search_rekon = st.text_input("🔍 Cari Kode atau Nama Rekening:", "", key="s_rekon")
+                search_rekon = st.text_input("🔍 Cari Kode / Uraian:", "", key="s_rekon")
 
             df_rekon_filtered = df_rekon[df_rekon['Status'].isin(filter_status)].copy()
             if search_rekon:
@@ -501,7 +362,7 @@ if file_rak and file_sipd and file_skpd:
 
         # === TAB 2: DIAGNOSA DETAIL SELISIH ===
         with tab_investigasi:
-            st.markdown("#### **Diagnosa Per Kode Rekening yang Berselisih**")
+            st.write("##### **Diagnosa Per Kode Rekening yang Berselisih**")
             
             df_selisih_only = df_rekon[abs(df_rekon['Selisih']) > 1].copy()
             
@@ -512,35 +373,21 @@ if file_rak and file_sipd and file_skpd:
                 selected_code_target = selected_opsi.split(" - ")[0].strip()
                 row_info = df_selisih_only[df_selisih_only['Kode Rekening'] == selected_code_target].iloc[0]
 
-                # Kotak Diagnosa Modern
+                # Kotak Diagnosa
                 if row_info['Selisih'] < 0:
                     st.markdown(f"""
-                    <div class="action-card" style="border-left: 5px solid #EF4444;">
-                        <h4 style="margin:0 0 6px 0; color:#DC2626;">📌 {row_info['Kode Rekening']} — {row_info['Uraian Rekening (RAK)']}</h4>
-                        <div style="font-size:1.05rem; font-weight:700; color:#0F172A; margin-bottom:8px;">
-                            Realisasi LRA Lebih Kecil Rp {format_rupiah(abs(row_info['Selisih']))[3:]}
-                        </div>
-                        <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> Nilai kontrak yang diinput di <b>SIMBADA</b> tercatat <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, namun dana SP2D yang cair di <b>LRA Kasda</b> baru sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>.
-                        </p>
-                        <div style="background:#FEE2E2; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#991B1B; font-weight:600;">
-                            👉 Langkah: Cek apakah pekerjaan ini dibayar bertahap (termin) sehingga sisa terminnya belum terbit SP2D.
-                        </div>
+                    <div class="action-box-red">
+                        <b style="color:#991B1B;">⚠️ KONDISI: Realisasi LRA Lebih Kecil Rp {format_rupiah(abs(row_info['Selisih']))[3:]}</b><br>
+                        Nilai kontrak yang diinput di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, namun dana SP2D yang cair di <b>LRA Kasda</b> baru sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>.<br>
+                        👉 <b>Langkah Tindakan:</b> Cek apakah pekerjaan ini dibayar bertahap (termin) sehingga sisa terminnya belum terbit SP2D.
                     </div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
-                    <div class="action-card" style="border-left: 5px solid #3B82F6;">
-                        <h4 style="margin:0 0 6px 0; color:#2563EB;">📌 {row_info['Kode Rekening']} — {row_info['Uraian Rekening (RAK)']}</h4>
-                        <div style="font-size:1.05rem; font-weight:700; color:#0F172A; margin-bottom:8px;">
-                            Realisasi LRA Lebih Besar Rp {format_rupiah(row_info['Selisih'])[3:]}
-                        </div>
-                        <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> SP2D yang cair di <b>LRA Kasda</b> tercatat <b>{format_rupiah(row_info['Realisasi LRA'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.
-                        </p>
-                        <div style="background:#DBEAFE; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#1E40AF; font-weight:600;">
-                            👉 Langkah: Pengurus Barang SKPD wajib menginput SP2D yang belum tercatat ke aplikasi SIMBADA.
-                        </div>
+                    <div class="action-box-blue">
+                        <b style="color:#1E40AF;">ℹ️ KONDISI: Realisasi LRA Lebih Besar Rp {format_rupiah(row_info['Selisih'])[3:]}</b><br>
+                        SP2D yang cair di <b>LRA Kasda</b> sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.<br>
+                        👉 <b>Langkah Tindakan:</b> Pengurus Barang SKPD wajib menginput SP2D yang belum tercatat ke aplikasi SIMBADA.
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -581,14 +428,8 @@ if file_rak and file_sipd and file_skpd:
                 
                 # SISI KIRI: DATA ENTRY SIMBADA
                 with c_sel1:
-                    st.markdown(f"""
-                    <div style="font-weight:700; color:#0F172A; margin-bottom:4px;">
-                        📁 Data Entry SIMBADA ({len(df_unmatched_skpd)} Paket)
-                    </div>
-                    <div style="font-size:0.85rem; color:#64748B; margin-bottom:8px;">
-                        Total Nilai: <b>{format_rupiah(tot_u_skpd)}</b>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.write(f"📁 **Data Entry SIMBADA ({len(df_unmatched_skpd)} Paket)**")
+                    st.caption(f"Total Nilai: `{format_rupiah(tot_u_skpd)}`")
                     
                     if len(df_unmatched_skpd) > 0:
                         cols_text = [c for c in df_unmatched_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
@@ -598,7 +439,7 @@ if file_rak and file_sipd and file_skpd:
                                 best_col = c
 
                         df_u_skpd_clean = pd.DataFrame({
-                            'Rincian Pengadaan di SIMBADA': df_unmatched_skpd[best_col].astype(str),
+                            'Rincian Pengadaan SIMBADA': df_unmatched_skpd[best_col].astype(str),
                             'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah)
                         })
                         st.dataframe(df_u_skpd_clean, use_container_width=True, hide_index=True)
@@ -607,14 +448,8 @@ if file_rak and file_sipd and file_skpd:
 
                 # SISI KANAN: DATA REALISASI LRA / SP2D
                 with c_sel2:
-                    st.markdown(f"""
-                    <div style="font-weight:700; color:#0F172A; margin-bottom:4px;">
-                        🏛️ Data Realisasi LRA / SP2D ({len(df_unmatched_sipd)} SP2D)
-                    </div>
-                    <div style="font-size:0.85rem; color:#64748B; margin-bottom:8px;">
-                        Total Nilai: <b>{format_rupiah(tot_u_sipd)}</b>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.write(f"🏛️ **Data Realisasi LRA / SP2D ({len(df_unmatched_sipd)} SP2D)**")
+                    st.caption(f"Total Nilai: `{format_rupiah(tot_u_sipd)}`")
                     
                     if len(df_unmatched_sipd) > 0:
                         col_tgl = [c for c in df_unmatched_sipd.columns if 'TANGGAL' in c.upper() or 'TGL' in c.upper()]
@@ -637,14 +472,14 @@ if file_rak and file_sipd and file_skpd:
 
         # === TAB 3: GRAFIK KOMPARASI ===
         with tab_grafik:
-            st.markdown("#### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA**")
+            st.write("##### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA**")
             df_chart = df_rekon[['Kode Rekening', 'Realisasi LRA', 'Entry SIMBADA']].copy()
             df_chart = df_chart.set_index('Kode Rekening')
             st.bar_chart(df_chart, height=380)
 
         # === TAB 4: DETAIL REALISASI LRA ===
         with tab1:
-            st.markdown(f"#### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris)**")
+            st.write(f"##### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris)**")
             cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
             df_sipd_view = df_sipd_bm[['Kode Rekening (Acuan)'] + cols_sipd_clean + ['Nominal Realisasi']].copy()
             df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
@@ -652,7 +487,7 @@ if file_rak and file_sipd and file_skpd:
 
         # === TAB 5: DETAIL SIMBADA ===
         with tab2:
-            st.markdown(f"#### **Data Mentah Entry SIMBADA ({len(df_skpd_main_leaves)} Rekening)**")
+            st.write(f"##### **Data Mentah Entry SIMBADA ({len(df_skpd_main_leaves)} Rekening)**")
             cols_to_keep = [c for c in df_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
             df_skpd_view = df_skpd[['Kode Rekening (Acuan)'] + cols_to_keep + ['Nominal SKPD']].copy()
             df_skpd_view['Nominal SKPD'] = df_skpd_view['Nominal SKPD'].apply(format_rupiah)
