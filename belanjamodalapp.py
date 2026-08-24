@@ -6,13 +6,13 @@ import io
 
 # Set Konfigurasi Halaman
 st.set_page_config(
-    page_title="SIPD - Rekonsiliasi Belanja Modal",
-    page_icon="⚡",
+    page_title="Mesin Rekon Belanja Modal",
+    page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Desain Modern Mirip SIPD
+# Custom CSS Desain Modern & Rapih
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -26,60 +26,57 @@ st.markdown("""
         background-color: #F8FAFC;
     }
 
-    /* Top Bar SIPD */
-    .sipd-topbar {
+    /* Top Bar Header */
+    .app-topbar {
         background: #FFFFFF;
-        padding: 14px 24px;
-        border-radius: 16px;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        padding: 16px 24px;
+        border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 24px;
-        border: 1px solid #F1F5F9;
+        margin-bottom: 20px;
+        border: 1px solid #E2E8F0;
     }
     
     .breadcrumb-title {
         color: #64748B;
-        font-size: 0.875rem;
+        font-size: 0.825rem;
         font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 6px;
+        margin-bottom: 2px;
     }
     .breadcrumb-active {
         color: #0F172A;
-        font-weight: 700;
-        font-size: 1.15rem;
+        font-weight: 800;
+        font-size: 1.2rem;
     }
 
     /* Stat Cards Modern */
-    .sipd-card {
+    .stat-card {
         background: #FFFFFF;
-        border-radius: 16px;
-        padding: 20px 22px;
-        box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+        border-radius: 14px;
+        padding: 18px 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
         border: 1px solid #E2E8F0;
-        transition: transform 0.15s ease;
         height: 100%;
-    }
-    .sipd-card:hover {
-        transform: translateY(-2px);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
     .card-header-flex {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
     }
     .icon-badge {
-        width: 42px;
-        height: 42px;
-        border-radius: 12px;
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.25rem;
+        font-size: 1.2rem;
     }
     .badge-blue-bg { background-color: #EFF6FF; color: #2563EB; }
     .badge-purple-bg { background-color: #FAF5FF; color: #9333EA; }
@@ -87,17 +84,20 @@ st.markdown("""
     .badge-green-bg { background-color: #F0FDF4; color: #16A34A; }
 
     .card-title-text {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         color: #64748B;
-        font-weight: 600;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.03em;
     }
     .card-nominal {
-        font-size: 1.35rem;
+        font-size: 1.25rem;
         font-weight: 800;
         color: #0F172A;
-        margin: 4px 0 10px 0;
+        margin: 4px 0 8px 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
     .pill-tag {
@@ -106,6 +106,7 @@ st.markdown("""
         border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 700;
+        width: fit-content;
     }
     .pill-blue { background: #DBEAFE; color: #1E40AF; }
     .pill-purple { background: #F3E8FF; color: #6B21A8; }
@@ -115,17 +116,18 @@ st.markdown("""
     /* Box Diagnosa & Alert */
     .action-card {
         background: #FFFFFF;
-        border-radius: 16px;
-        padding: 20px;
+        border-radius: 14px;
+        padding: 18px;
         border: 1px solid #E2E8F0;
-        margin-bottom: 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        margin-bottom: 18px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
     }
     
     /* Styling Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: transparent;
+        margin-bottom: 12px;
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 10px;
@@ -216,7 +218,7 @@ def parse_skpd_data(file):
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel LRA / SIPD
+# Helper membaca Excel Realisasi Kasda / LRA
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -231,14 +233,13 @@ def parse_sipd_data(file):
 
 # --- SIDEBAR MENU & UPLOAD ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Logo_Kementerian_Dalam_Negeri_Republik_Indonesia.svg/800px-Logo_Kementerian_Dalam_Negeri_Republik_Indonesia.svg.png", width=65)
-    st.markdown("### **SIPD - Rekonsiliasi**")
-    st.caption("Modul Penatausahaan Belanja Modal")
+    st.markdown("### 🏛️ **Mesin Rekon Belanja Modal**")
+    st.caption("Aplikasi Pencocokan & Rekonsiliasi Aset")
     st.markdown("---")
     
     st.markdown("##### 📁 **Upload Dokumen Sumber**")
     file_rak = st.file_uploader("1. Acuan RAK Belanja Modal", type=['xlsx', 'xls', 'csv'])
-    file_sipd = st.file_uploader("2. Data Realisasi LRA / SP2D", type=['xlsx', 'xls', 'csv'])
+    file_sipd = st.file_uploader("2. Data Realisasi Kasda / LRA", type=['xlsx', 'xls', 'csv'])
     file_skpd = st.file_uploader("3. Data Entry SIMBADA", type=['xlsx', 'xls', 'csv'])
 
 # --- PROSES UTAMA ---
@@ -276,7 +277,7 @@ if file_rak and file_sipd and file_skpd:
         
         with st.sidebar:
             st.markdown("---")
-            st.markdown("##### 🎯 **Filter SKPD**")
+            st.markdown("##### 🎯 **Filter SKPD Target**")
             if col_skpd_sipd:
                 list_skpd = sorted(df_sipd[col_skpd_sipd[0]].dropna().unique().tolist())
                 selected_skpd_target = st.selectbox("Pilih Satuan Kerja / SKPD:", options=list_skpd)
@@ -338,7 +339,7 @@ if file_rak and file_sipd and file_skpd:
         df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI DATA LRA SIPD
+        # 4. IDENTIFIKASI DATA REALISASI KASDA / LRA
         def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
@@ -356,32 +357,32 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_bm['Nominal Realisasi'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
         # 5. TABEL ANALISIS REKONSILIASI
-        grp_sipd = df_sipd_bm.groupby('Kode Rekening (Acuan)')['Nominal Realisasi'].sum().rename('Realisasi LRA (SIPD)')
+        grp_sipd = df_sipd_bm.groupby('Kode Rekening (Acuan)')['Nominal Realisasi'].sum().rename('Realisasi LRA')
         grp_skpd = df_skpd_main_leaves.groupby('Kode Rekening (Acuan)')['Nominal SKPD'].sum().rename('Entry SIMBADA')
 
         df_rekon = pd.concat([grp_sipd, grp_skpd], axis=1).fillna(0)
         df_rekon = df_rekon[df_rekon['Entry SIMBADA'] > 0].copy()
 
-        df_rekon['Selisih'] = df_rekon['Realisasi LRA (SIPD)'] - df_rekon['Entry SIMBADA']
+        df_rekon['Selisih'] = df_rekon['Realisasi LRA'] - df_rekon['Entry SIMBADA']
         df_rekon['Status'] = df_rekon['Selisih'].apply(
             lambda x: '✅ Balance' if abs(x) < 1 else ('🔻 Realisasi LRA Lebih Kecil' if x < 0 else '🔺 Realisasi LRA Lebih Besar')
         )
         df_rekon = df_rekon.reset_index().rename(columns={'Kode Rekening (Acuan)': 'Kode Rekening'})
         df_rekon['Uraian Rekening (RAK)'] = df_rekon['Kode Rekening'].apply(lambda x: rak_lookup.get(x, 'Belanja Modal'))
 
-        df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi LRA (SIPD)', 'Entry SIMBADA', 'Selisih', 'Status']]
+        df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi LRA', 'Entry SIMBADA', 'Selisih', 'Status']]
         df_rekon = df_rekon.sort_values(by='Selisih', key=abs, ascending=False)
 
         # Total Metrik
-        total_sipd_bm = df_rekon['Realisasi LRA (SIPD)'].sum()
+        total_sipd_bm = df_rekon['Realisasi LRA'].sum()
         total_skpd_bm = df_rekon['Entry SIMBADA'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
-        # === TOP BAR MODERN ===
+        # === TOP BAR HEADER ===
         st.markdown(f"""
-        <div class="sipd-topbar">
+        <div class="app-topbar">
             <div>
-                <div class="breadcrumb-title">🏠 Beranda / Penatausahaan Aset / Rekonsiliasi</div>
+                <div class="breadcrumb-title">🏠 Beranda / Penatausahaan Aset / Rekonsiliasi Belanja Modal</div>
                 <div class="breadcrumb-active">{selected_skpd_target}</div>
             </div>
             <div>
@@ -392,14 +393,14 @@ if file_rak and file_sipd and file_skpd:
         </div>
         """, unsafe_allow_html=True)
 
-        # === 4 STAT CARDS MODERN (SIPD STYLE) ===
+        # === 4 STAT CARDS ===
         k1, k2, k3, k4 = st.columns(4)
         
         with k1:
             st.markdown(f"""
-            <div class="sipd-card">
+            <div class="stat-card">
                 <div class="card-header-flex">
-                    <span class="card-title-text">Realisasi LRA (SIPD)</span>
+                    <span class="card-title-text">Realisasi LRA (Kasda)</span>
                     <div class="icon-badge badge-blue-bg">🏛️</div>
                 </div>
                 <div class="card-nominal">{format_rupiah(total_sipd_bm)}</div>
@@ -409,7 +410,7 @@ if file_rak and file_sipd and file_skpd:
 
         with k2:
             st.markdown(f"""
-            <div class="sipd-card">
+            <div class="stat-card">
                 <div class="card-header-flex">
                     <span class="card-title-text">Entry SIMBADA (Aset)</span>
                     <div class="icon-badge badge-purple-bg">📋</div>
@@ -421,7 +422,7 @@ if file_rak and file_sipd and file_skpd:
 
         with k3:
             st.markdown(f"""
-            <div class="sipd-card">
+            <div class="stat-card">
                 <div class="card-header-flex">
                     <span class="card-title-text">Selisih Rekonsiliasi</span>
                     <div class="icon-badge {'badge-green-bg' if abs(total_selisih) < 1 else 'badge-red-bg'}">⚖️</div>
@@ -436,7 +437,7 @@ if file_rak and file_sipd and file_skpd:
         with k4:
             persen_match = (1.0 - abs(total_selisih) / max(total_sipd_bm, total_skpd_bm, 1)) * 100
             st.markdown(f"""
-            <div class="sipd-card">
+            <div class="stat-card">
                 <div class="card-header-flex">
                     <span class="card-title-text">Akurasi Pencocokan</span>
                     <div class="icon-badge badge-green-bg">📊</div>
@@ -453,13 +454,13 @@ if file_rak and file_sipd and file_skpd:
             "⚖️ Tabel Rekonsiliasi",
             "🔎 Diagnosa & Rincian Selisih",
             "📊 Grafik Komparasi Rekening",
-            "🏛️ Data LRA SIPD", 
+            "🏛️ Data Realisasi LRA", 
             "📋 Data SIMBADA"
         ])
 
         # === TAB 1: REKONSILIASI ===
         with tab_rekon:
-            st.markdown("#### **Tabel Komparasi Belanja Modal (LRA SIPD vs SIMBADA)**")
+            st.markdown("#### **Tabel Komparasi Belanja Modal (Realisasi LRA vs SIMBADA)**")
             
             f_col1, f_col2 = st.columns([2, 2])
             with f_col1:
@@ -480,7 +481,7 @@ if file_rak and file_sipd and file_skpd:
                 ]
 
             df_rekon_view = df_rekon_filtered.copy()
-            df_rekon_view['Realisasi LRA (SIPD)'] = df_rekon_view['Realisasi LRA (SIPD)'].apply(format_rupiah)
+            df_rekon_view['Realisasi LRA'] = df_rekon_view['Realisasi LRA'].apply(format_rupiah)
             df_rekon_view['Entry SIMBADA'] = df_rekon_view['Entry SIMBADA'].apply(format_rupiah)
             df_rekon_view['Selisih'] = df_rekon_view['Selisih'].apply(format_rupiah)
 
@@ -520,7 +521,7 @@ if file_rak and file_sipd and file_skpd:
                             Realisasi LRA Lebih Kecil Rp {format_rupiah(abs(row_info['Selisih']))[3:]}
                         </div>
                         <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> Nilai kontrak yang diinput di <b>SIMBADA</b> tercatat <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, namun dana SP2D yang cair di <b>LRA SIPD</b> baru sebesar <b>{format_rupiah(row_info['Realisasi LRA (SIPD)'])}</b>.
+                            <b>Analisis:</b> Nilai kontrak yang diinput di <b>SIMBADA</b> tercatat <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, namun dana SP2D yang cair di <b>LRA Kasda</b> baru sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>.
                         </p>
                         <div style="background:#FEE2E2; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#991B1B; font-weight:600;">
                             👉 Langkah: Cek apakah pekerjaan ini dibayar bertahap (termin) sehingga sisa terminnya belum terbit SP2D.
@@ -535,7 +536,7 @@ if file_rak and file_sipd and file_skpd:
                             Realisasi LRA Lebih Besar Rp {format_rupiah(row_info['Selisih'])[3:]}
                         </div>
                         <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> SP2D yang cair di <b>LRA SIPD</b> tercatat <b>{format_rupiah(row_info['Realisasi LRA (SIPD)'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.
+                            <b>Analisis:</b> SP2D yang cair di <b>LRA Kasda</b> tercatat <b>{format_rupiah(row_info['Realisasi LRA'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.
                         </p>
                         <div style="background:#DBEAFE; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#1E40AF; font-weight:600;">
                             👉 Langkah: Pengurus Barang SKPD wajib menginput SP2D yang belum tercatat ke aplikasi SIMBADA.
@@ -604,11 +605,11 @@ if file_rak and file_sipd and file_skpd:
                     else:
                         st.success("✅ Semua data SIMBADA sudah klop dengan LRA.")
 
-                # SISI KANAN: DATA REALISASI LRA / SP2D SIPD
+                # SISI KANAN: DATA REALISASI LRA / SP2D
                 with c_sel2:
                     st.markdown(f"""
                     <div style="font-weight:700; color:#0F172A; margin-bottom:4px;">
-                        🏛️ Data Realisasi LRA / SP2D SIPD ({len(df_unmatched_sipd)} SP2D)
+                        🏛️ Data Realisasi LRA / SP2D ({len(df_unmatched_sipd)} SP2D)
                     </div>
                     <div style="font-size:0.85rem; color:#64748B; margin-bottom:8px;">
                         Total Nilai: <b>{format_rupiah(tot_u_sipd)}</b>
@@ -637,13 +638,13 @@ if file_rak and file_sipd and file_skpd:
         # === TAB 3: GRAFIK KOMPARASI ===
         with tab_grafik:
             st.markdown("#### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA**")
-            df_chart = df_rekon[['Kode Rekening', 'Realisasi LRA (SIPD)', 'Entry SIMBADA']].copy()
+            df_chart = df_rekon[['Kode Rekening', 'Realisasi LRA', 'Entry SIMBADA']].copy()
             df_chart = df_chart.set_index('Kode Rekening')
             st.bar_chart(df_chart, height=380)
 
-        # === TAB 4: DETAIL LRA SIPD ===
+        # === TAB 4: DETAIL REALISASI LRA ===
         with tab1:
-            st.markdown(f"#### **Data Mentah Realisasi LRA SIPD ({len(df_sipd_bm)} Baris)**")
+            st.markdown(f"#### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris)**")
             cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
             df_sipd_view = df_sipd_bm[['Kode Rekening (Acuan)'] + cols_sipd_clean + ['Nominal Realisasi']].copy()
             df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
@@ -660,4 +661,4 @@ if file_rak and file_sipd and file_skpd:
     except Exception as e:
         st.error(f"Terjadi kesalahan pemrosesan data: {e}")
 else:
-    st.info("👋 **Selamat Datang di SIPD Modul Rekonsiliasi Belanja Modal.** Silakan unggah ketiga file data di menu samping untuk memulai pencocokan.")
+    st.info("👋 **Selamat Datang di Mesin Rekon Belanja Modal.** Silakan unggah ketiga file data di menu samping untuk memulai pencocokan.")
