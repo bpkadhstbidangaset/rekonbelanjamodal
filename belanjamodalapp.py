@@ -12,24 +12,46 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Custom Styling Sederhana & Bersih
 st.markdown("""
 <style>
-    .main-header { font-size:2rem; font-weight:700; color:#1E293B; }
-    .sub-header { font-size:1rem; color:#64748B; margin-bottom:20px; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; font-weight: 600; }
+    .main-header { font-size:1.8rem; font-weight:700; color:#1E293B; margin-bottom: 2px; }
+    .sub-header { font-size:0.95rem; color:#64748B; margin-bottom:18px; }
+    .metric-card {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 12px;
+    }
+    .badge-red {
+        background-color: #FEE2E2;
+        color: #991B1B;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+    .badge-yellow {
+        background-color: #FEF3C7;
+        color: #92400E;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">🏛️ Mesin Rekonsiliasi Belanja Modal</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Pencocokan Transaksi Presisi & Analisis Investigasi Selisih Belanja Modal</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Pencocokan Presisi & Investigasi Sumber Selisih Transaksi</div>', unsafe_allow_html=True)
 st.divider()
 
 # --- SIDEBAR UPLOAD ---
 st.sidebar.header("📁 Upload File Data")
 file_rak = st.sidebar.file_uploader("1. RAK Rekening Belanja Modal (Acuan)", type=['xlsx', 'xls', 'csv'])
-file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD (Foto 1)", type=['xlsx', 'xls', 'csv'])
-file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset (Foto 2)", type=['xlsx', 'xls', 'csv'])
+file_sipd = st.sidebar.file_uploader("2. Data Realisasi SIPD", type=['xlsx', 'xls', 'csv'])
+file_skpd = st.sidebar.file_uploader("3. Data Entry SKPD / Rincian Aset", type=['xlsx', 'xls', 'csv'])
 
 # Helper normalisasi kode
 def normalize_code(val):
@@ -80,7 +102,6 @@ def parse_rak_data(file):
 # Helper membaca Excel SKPD
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
-    
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
@@ -161,7 +182,7 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua Data SIPD"
 
-        # 3. IDENTIFIKASI & HITUNG SKPD
+        # 3. IDENTIFIKASI & STRUKTURISASI DATA SKPD
         def get_matched_code(row_str):
             row_norm = normalize_code(row_str)
             for raw_c in valid_raw_codes:
@@ -214,7 +235,7 @@ if file_rak and file_sipd and file_skpd:
         df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI & HITUNG SIPD
+        # 4. IDENTIFIKASI DATA SIPD
         def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
@@ -248,19 +269,19 @@ if file_rak and file_sipd and file_skpd:
         df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi SIPD', 'Entry SKPD', 'Selisih', 'Status']]
         df_rekon = df_rekon.sort_values(by='Selisih', key=abs, ascending=False)
 
-        # Total Metrik
+        # Total Metrik Dashboard
         total_sipd_bm = df_rekon['Realisasi SIPD'].sum()
         total_skpd_bm = df_rekon['Entry SKPD'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
-        # DASHBOARD METRIK
+        # TAMPILAN HEADER DASHBOARD
         st.success(f"✅ Rekonsiliasi selesai untuk: **{selected_skpd_target}**")
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Realisasi SIPD (Belanja Modal)", format_rupiah(total_sipd_bm))
-        col2.metric("Entry SKPD (Belanja Modal)", format_rupiah(total_skpd_bm))
-        col3.metric(
-            "Selisih Rekonsiliasi", 
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Realisasi SIPD (Belanja Modal)", format_rupiah(total_sipd_bm))
+        c2.metric("Total Entry SKPD (Belanja Modal)", format_rupiah(total_skpd_bm))
+        c3.metric(
+            "Selisih Bersih Rekonsiliasi", 
             format_rupiah(total_selisih), 
             delta=f"{-total_selisih:,.2f}", 
             delta_color="inverse"
@@ -271,7 +292,7 @@ if file_rak and file_sipd and file_skpd:
         # TAMPILAN TAB UTAMA
         tab_rekon, tab_investigasi, tab1, tab2, tab3 = st.tabs([
             "⚖️ Rekonsiliasi & Analisis Selisih",
-            "🔎 Investigasi Detail Selisih",
+            "🔎 Rincian & Sumber Selisih",
             "🔍 Detail Realisasi SIPD", 
             "📋 Detail Entry SKPD", 
             "📁 Data SKPD Dieliminasi"
@@ -284,13 +305,13 @@ if file_rak and file_sipd and file_skpd:
             f_col1, f_col2 = st.columns([2, 2])
             with f_col1:
                 filter_status = st.multiselect(
-                    "Filter Status Kecocokan:",
+                    "Filter Status:",
                     options=sorted(df_rekon['Status'].unique()),
                     default=sorted(df_rekon['Status'].unique()),
                     key="f_status_rekon"
                 )
             with f_col2:
-                search_rekon = st.text_input("🔍 Cari Kode / Uraian Rekening:", "", key="s_rekon")
+                search_rekon = st.text_input("🔍 Cari Kode / Uraian:", "", key="s_rekon")
 
             df_rekon_filtered = df_rekon[df_rekon['Status'].isin(filter_status)].copy()
             if search_rekon:
@@ -318,51 +339,55 @@ if file_rak and file_sipd and file_skpd:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # === TAB 2: INVESTIGASI DETAIL SELISIH (DENGAN PENCOCOKAN OTOMATIS) ===
+        # === TAB 2: INVESTIGASI RINCIAN SUMBER SELISIH (SEDERHANA & JELAS) ===
         with tab_investigasi:
-            st.subheader("🔎 Investigasi Rinci Penyebab Selisih Transaksi")
-            st.caption("Pilih kode rekening di bawah untuk melihat rincian transaksi mana yang sudah cocok dan mana yang menjadi sumber selisih.")
+            st.subheader("🔎 Rincian Penyebab Selisih Per Akun")
+            st.caption("Pilih akun di bawah untuk melihat rincian pengadaan/SP2D apa saja yang menyebabkan selisih.")
 
             df_selisih_only = df_rekon[abs(df_rekon['Selisih']) > 1].copy()
             
             if len(df_selisih_only) > 0:
                 opsi_akun = [f"{r['Kode Rekening']} - {r['Uraian Rekening (RAK)']} (Selisih: {format_rupiah(r['Selisih'])})" for _, r in df_selisih_only.iterrows()]
-                selected_opsi = st.selectbox("🎯 Pilih Akun yang Ingin Dibedah:", options=opsi_akun)
+                selected_opsi = st.selectbox("🎯 Pilih Akun yang Ingin Dilihat Rincian Selisihnya:", options=opsi_akun)
                 
                 selected_code_target = selected_opsi.split(" - ")[0].strip()
                 row_info = df_selisih_only[df_selisih_only['Kode Rekening'] == selected_code_target].iloc[0]
 
-                st.info(f"""
-                **Kode Rekening:** `{row_info['Kode Rekening']}` — **{row_info['Uraian Rekening (RAK)']}**  
-                • **Realisasi SIPD:** {format_rupiah(row_info['Realisasi SIPD'])}  
-                • **Entry SKPD:** {format_rupiah(row_info['Entry SKPD'])}  
-                • **Total Selisih:** **{format_rupiah(row_info['Selisih'])}** ({row_info['Status']})
-                """)
+                # Card Info Sederhana
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4 style="margin:0 0 8px 0; color:#1E293B;">📌 {row_info['Kode Rekening']} — {row_info['Uraian Rekening (RAK)']}</h4>
+                    <span style="font-size:1.1rem; font-weight:700; color:{'#DC2626' if row_info['Selisih'] < 0 else '#2563EB'};">
+                        Total Selisih: {format_rupiah(row_info['Selisih'])} ({row_info['Status']})
+                    </span><br>
+                    <small style="color:#64748B;">Realisasi SIPD: <b>{format_rupiah(row_info['Realisasi SIPD'])}</b> | Entry SKPD: <b>{format_rupiah(row_info['Entry SKPD'])}</b></small>
+                </div>
+                """, unsafe_allow_html=True)
 
-                # Ambil rincian data untuk akun terpilih
+                # Ambil data SIPD & SKPD untuk akun ini
                 df_sipd_target = df_sipd_bm[df_sipd_bm['Kode Rekening (Acuan)'] == selected_code_target].copy()
                 df_skpd_target = df_skpd[df_skpd['Kode Rekening (Acuan)'] == selected_code_target].copy()
                 
-                # Ambil rincian pengadaan di bawah header utama
-                df_skpd_target_rincian = df_skpd_target[~df_skpd_target.apply(is_main_leaf, axis=1)].copy()
-                if len(df_skpd_target_rincian) == 0:
-                    df_skpd_target_rincian = df_skpd_target.copy()
+                # Rincian pengadaan di bawah header akun
+                df_skpd_rincian = df_skpd_target[~df_skpd_target.apply(is_main_leaf, axis=1)].copy()
+                if len(df_skpd_rincian) == 0:
+                    df_skpd_rincian = df_skpd_target.copy()
 
-                # --- ALGORITMA PENCOCOKAN TRANSAKSI (NOMINAL MATCHING) ---
+                # --- PENCOCOKAN NOMINAL ---
                 sipd_nominals = df_sipd_target['Nominal Realisasi'].tolist()
-                skpd_nominals = df_skpd_target_rincian['Nominal SKPD'].tolist()
+                skpd_nominals = df_skpd_rincian['Nominal SKPD'].tolist()
 
-                # Hitung frekuensi nominal di masing-masing sisi
                 sipd_counts = pd.Series(sipd_nominals).value_counts().to_dict()
                 skpd_counts = pd.Series(skpd_nominals).value_counts().to_dict()
 
-                # Cari transaksi yang hanya ada di salah satu sisi
+                # Item yang hanya ada di SKPD
                 unmatched_skpd = []
-                for _, r in df_skpd_target_rincian.iterrows():
+                for _, r in df_skpd_rincian.iterrows():
                     nom = r['Nominal SKPD']
                     if nom > 0 and (nom not in sipd_counts or skpd_counts.get(nom, 0) > sipd_counts.get(nom, 0)):
                         unmatched_skpd.append(r)
 
+                # Item yang hanya ada di SIPD
                 unmatched_sipd = []
                 for _, r in df_sipd_target.iterrows():
                     nom = r['Nominal Realisasi']
@@ -372,58 +397,56 @@ if file_rak and file_sipd and file_skpd:
                 df_unmatched_skpd = pd.DataFrame(unmatched_skpd) if unmatched_skpd else pd.DataFrame()
                 df_unmatched_sipd = pd.DataFrame(unmatched_sipd) if unmatched_sipd else pd.DataFrame()
 
-                # --- TAMPILKAN TEMUAN SELISIH ---
-                st.markdown("#### 🚨 Temuan Rincian Transaksi yang Tidak Klop / Belum Pasangan")
-                
+                # --- HITUNG TOTAL NOMINAL SELISIH ---
+                tot_u_skpd = df_unmatched_skpd['Nominal SKPD'].sum() if len(df_unmatched_skpd) > 0 else 0.0
+                tot_u_sipd = df_unmatched_sipd['Nominal Realisasi'].sum() if len(df_unmatched_sipd) > 0 else 0.0
+
                 c_sel1, c_sel2 = st.columns(2)
                 
+                # SISI KIRI: ITEM HANYA DI SKPD
                 with c_sel1:
-                    st.markdown("##### 🔴 Ada di Entry SKPD, Belum / Beda Nominal di SIPD")
+                    st.markdown(f'<span class="badge-red">🔴 Ada di Entry SKPD, Belum Cair di SIPD ({len(df_unmatched_skpd)} Item)</span>', unsafe_allow_html=True)
+                    st.markdown(f"**Total Nilai: `{format_rupiah(tot_u_skpd)}`**")
+                    
                     if len(df_unmatched_skpd) > 0:
-                        st.caption(f"Ditemukan **{len(df_unmatched_skpd)} rincian pengadaan** yang nominalnya tidak ditemukan pasangannya di SP2D SIPD:")
-                        cols_skpd_show = [c for c in df_unmatched_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
-                        df_u_skpd_view = df_unmatched_skpd[cols_skpd_show + ['Nominal SKPD']].copy()
-                        df_u_skpd_view['Nominal SKPD'] = df_u_skpd_view['Nominal SKPD'].apply(format_rupiah)
-                        df_u_skpd_view = df_u_skpd_view.rename(columns={'Nominal SKPD': 'Nilai Pengadaan (SKPD)'})
-                        st.dataframe(df_u_skpd_view, use_container_width=True, hide_index=True)
+                        # Bersihkan kolom agar hanya menampilkan teks uraian dan nominal
+                        cols_text = [c for c in df_unmatched_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
+                        
+                        # Pilih kolom uraian yang paling informatif
+                        col_uraian_skpd = cols_text[0] if cols_text else df_unmatched_skpd.columns[1]
+                        
+                        df_u_skpd_clean = pd.DataFrame({
+                            'Rincian Pengadaan / Kontrak SKPD': df_unmatched_skpd[col_uraian_skpd].astype(str),
+                            'Nominal Pengadaan': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah)
+                        })
+                        st.dataframe(df_u_skpd_clean, use_container_width=True, hide_index=True)
                     else:
-                        st.success("✅ Semua rincian pengadaan di SKPD memiliki pasangan nominal di SIPD.")
+                        st.success("✅ Tidak ada item pengadaan SKPD yang menggantung.")
 
+                # SISI KANAN: ITEM HANYA DI SIPD
                 with c_sel2:
-                    st.markdown("##### 🟡 Ada di SP2D SIPD, Belum / Beda Nominal di SKPD")
+                    st.markdown(f'<span class="badge-yellow">🟡 Ada di SP2D SIPD, Belum Diinput SKPD ({len(df_unmatched_sipd)} SP2D)</span>', unsafe_allow_html=True)
+                    st.markdown(f"**Total Nilai: `{format_rupiah(tot_u_sipd)}`**")
+                    
                     if len(df_unmatched_sipd) > 0:
-                        st.caption(f"Ditemukan **{len(df_unmatched_sipd)} SP2D** di SIPD yang belum tercatat di rincian SKPD:")
-                        cols_sipd_show = [c for c in df_unmatched_sipd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
-                        df_u_sipd_view = df_unmatched_sipd[cols_sipd_show + ['Nominal Realisasi']].copy()
-                        df_u_sipd_view['Nominal Realisasi'] = df_u_sipd_view['Nominal Realisasi'].apply(format_rupiah)
-                        df_u_sipd_view = df_u_sipd_view.rename(columns={'Nominal Realisasi': 'Nilai SP2D (SIPD)'})
-                        st.dataframe(df_u_sipd_view, use_container_width=True, hide_index=True)
+                        # Pilih kolom tanggal, keterangan / no bukti
+                        col_tgl = [c for c in df_unmatched_sipd.columns if 'TANGGAL' in c.upper() or 'TGL' in c.upper()]
+                        col_ket = [c for c in df_unmatched_sipd.columns if 'KETERANGAN' in c.upper() or 'URAIAN' in c.upper() or 'BUKTI' in c.upper()]
+                        
+                        tgl_series = df_unmatched_sipd[col_tgl[0]] if col_tgl else df_unmatched_sipd.iloc[:, 0]
+                        ket_series = df_unmatched_sipd[col_ket[0]] if col_ket else df_unmatched_sipd.iloc[:, 1]
+                        
+                        df_u_sipd_clean = pd.DataFrame({
+                            'Tanggal': tgl_series.astype(str),
+                            'Keterangan SP2D / Keperluan': ket_series.astype(str),
+                            'Nominal SP2D': df_unmatched_sipd['Nominal Realisasi'].apply(format_rupiah)
+                        })
+                        st.dataframe(df_u_sipd_clean, use_container_width=True, hide_index=True)
                     else:
-                        st.success("✅ Semua SP2D di SIPD memiliki pasangan nominal di SKPD.")
-
-                st.markdown("---")
-                st.markdown("#### 📋 Seluruh Rincian Transaksi Akun Terpilih (Side-by-Side)")
-                
-                col_all_l, col_all_r = st.columns(2)
-                with col_all_l:
-                    st.markdown("##### 🏛️ Semua Transaksi Realisasi SIPD")
-                    if len(df_sipd_target) > 0:
-                        cols_sipd_all = [c for c in df_sipd_target.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
-                        df_s_all = df_sipd_target[cols_sipd_all + ['Nominal Realisasi']].copy()
-                        df_s_all['Nominal Realisasi'] = df_s_all['Nominal Realisasi'].apply(format_rupiah)
-                        st.dataframe(df_s_all, use_container_width=True, hide_index=True)
-
-                with col_all_r:
-                    st.markdown("##### 📋 Semua Rincian Entry SKPD")
-                    if len(df_skpd_target) > 0:
-                        cols_skpd_all = [c for c in df_skpd_target.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD']]
-                        df_k_all = df_skpd_target[cols_skpd_all + ['Nominal SKPD']].copy()
-                        df_k_all['Nominal SKPD'] = df_k_all['Nominal SKPD'].apply(format_rupiah)
-                        df_k_all = df_k_all.rename(columns={'Nominal SKPD': 'Nilai Rincian'})
-                        st.dataframe(df_k_all, use_container_width=True, hide_index=True)
+                        st.success("✅ Semua SP2D di SIPD sudah dicatat di aplikasi SKPD.")
 
             else:
-                st.success("🎉 Tidak ada selisih! Semua transaksi SIPD dan SKPD sudah balance.")
+                st.success("🎉 Tidak ada selisih! Semua transaksi SIPD dan SKPD sudah balance 100%.")
 
         # === TAB 3: DETAIL REALISASI SIPD ===
         with tab1:
