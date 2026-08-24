@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Khusus Bubble Card & Header Modern
+# Custom CSS Bubble Card & Header Modern
 st.markdown("""
 <style>
     .app-topbar {
@@ -214,15 +214,20 @@ def parse_skpd_data(file):
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel Realisasi Kasda / LRA
+# Helper membaca Excel LRA (Mendukung Versi 1 LRA Dokumen & Versi 2 Realisasi Akuntansi)
 def parse_sipd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        if ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
+        # Cek header Versi 1 (Per Dokumen) atau Versi 2 (Buku Besar)
+        if ('NAMA SKPD' in row_str and 'KODE REKENING' in row_str) or ('NILAI REALISASI' in row_str):
             header_idx = idx
             break
+        elif ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
+            header_idx = idx
+            break
+            
     df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
     return df
@@ -235,7 +240,7 @@ with st.sidebar:
     
     st.markdown("##### 📁 **Upload Dokumen Sumber**")
     file_rak = st.file_uploader("1. Acuan RAK Belanja Modal", type=['xlsx', 'xls', 'csv'])
-    file_sipd = st.file_uploader("2. Data Realisasi Kasda / LRA", type=['xlsx', 'xls', 'csv'])
+    file_sipd = st.file_uploader("2. Data Realisasi LRA (Versi 1 atau 2)", type=['xlsx', 'xls', 'csv'])
     file_skpd = st.file_uploader("3. Data Entry SIMBADA", type=['xlsx', 'xls', 'csv'])
 
 # --- PROSES UTAMA ---
@@ -268,16 +273,20 @@ if file_rak and file_sipd and file_skpd:
 
         norm_acuan_set = {normalize_code(k) for k in valid_raw_codes if len(normalize_code(k)) >= 5}
 
-        # 2. FILTER SKPD TARGET
-        col_skpd_sipd = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd', 'unit', 'nama_skpd'])]
+        # 2. FILTER SKPD TARGET PADA FILE LRA
+        # Cari nama kolom SKPD (misal: 'Nama SKPD', 'SKPD', 'NAMA_SKPD')
+        col_skpd_lra = [c for c in df_sipd.columns if c.strip().lower() in ['nama skpd', 'skpd', 'nama_skpd', 'dinas', 'opd']]
+        if not col_skpd_lra:
+            col_skpd_lra = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd'])]
         
         with st.sidebar:
             st.markdown("---")
             st.markdown("##### 🎯 **Filter SKPD Target**")
-            if col_skpd_sipd:
-                list_skpd = sorted(df_sipd[col_skpd_sipd[0]].dropna().unique().tolist())
+            if col_skpd_lra:
+                col_skpd_active = col_skpd_lra[0]
+                list_skpd = sorted(df_sipd[col_skpd_active].dropna().unique().tolist())
                 selected_skpd_target = st.selectbox("Pilih Satuan Kerja / SKPD:", options=list_skpd)
-                df_sipd_filtered = df_sipd[df_sipd[col_skpd_sipd[0]] == selected_skpd_target].copy()
+                df_sipd_filtered = df_sipd[df_sipd[col_skpd_active] == selected_skpd_target].copy()
             else:
                 df_sipd_filtered = df_sipd.copy()
                 selected_skpd_target = "Semua SKPD"
@@ -335,7 +344,7 @@ if file_rak and file_sipd and file_skpd:
         df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI DATA REALISASI KASDA / LRA
+        # 4. IDENTIFIKASI DATA REALISASI LRA (OTOMATIS SESUAI STRUKTUR FILE)
         def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
@@ -348,8 +357,14 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_filtered['Kode Rekening (Acuan)'] = df_sipd_filtered.apply(match_sipd_row, axis=1)
         df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Kode Rekening (Acuan)'] != ""].copy()
 
-        col_debit = [c for c in df_sipd_bm.columns if c.lower() == 'debit']
-        sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-4]
+        # Deteksi kolom nominal realisasi (Cari 'Nilai Realisasi', 'Nilai SP2D', atau 'Debit')
+        col_nom_lra = [c for c in df_sipd_bm.columns if c.strip().lower() in ['nilai realisasi', 'nilai_realisasi', 'nilai sp2d', 'debit']]
+        if col_nom_lra:
+            sipd_target_col = col_nom_lra[0]
+        else:
+            col_debit = [c for c in df_sipd_bm.columns if 'debit' in c.lower() or 'realisasi' in c.lower()]
+            sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-4]
+
         df_sipd_bm['Nominal Realisasi'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
         # 5. TABEL ANALISIS REKONSILIASI
@@ -506,7 +521,7 @@ if file_rak and file_sipd and file_skpd:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # === TAB 2: DIAGNOSA DETAIL SELISIH (DILENGKAPI TOMBOL UNDUH EXCEL TERPISAH RAPI) ===
+        # === TAB 2: DIAGNOSA DETAIL SELISIH ===
         with tab_investigasi:
             st.markdown("#### **Diagnosa Per Kode Rekening yang Berselisih**")
             
@@ -635,7 +650,6 @@ if file_rak and file_sipd and file_skpd:
                             </div>
                             """, unsafe_allow_html=True)
 
-                        # Tombol Ekspor Excel Rapi
                         out_skpd = io.BytesIO()
                         with pd.ExcelWriter(out_skpd, engine='openpyxl') as writer:
                             df_export_skpd = df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai Tercatat (Rp)'})
@@ -663,8 +677,9 @@ if file_rak and file_sipd and file_skpd:
                     """, unsafe_allow_html=True)
                     
                     if len(df_unmatched_sipd) > 0:
-                        col_tgl = [c for c in df_unmatched_sipd.columns if 'TANGGAL' in c.upper() or 'TGL' in c.upper()]
-                        col_ket = [c for c in df_unmatched_sipd.columns if 'KETERANGAN' in c.upper() or 'URAIAN' in c.upper() or 'BUKTI' in c.upper()]
+                        # Otomatis deteksi kolom tanggal & keterangan baik di Versi 1 maupun Versi 2
+                        col_tgl = [c for c in df_unmatched_sipd.columns if any(k in c.lower() for k in ['tanggal sp2d', 'tanggal dokumen', 'tanggal'])]
+                        col_ket = [c for c in df_unmatched_sipd.columns if any(k in c.lower() for k in ['keterangan dokumen', 'keterangan', 'uraian'])]
                         
                         tgl_series = df_unmatched_sipd[col_tgl[0]] if col_tgl else df_unmatched_sipd.iloc[:, 0]
                         ket_series = df_unmatched_sipd[col_ket[0]] if col_ket else df_unmatched_sipd.iloc[:, 1]
@@ -695,7 +710,6 @@ if file_rak and file_sipd and file_skpd:
                             </div>
                             """, unsafe_allow_html=True)
 
-                        # Tombol Ekspor Excel Rapi
                         out_sipd = io.BytesIO()
                         with pd.ExcelWriter(out_sipd, engine='openpyxl') as writer:
                             df_export_sipd = df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai SP2D (Rp)'})
