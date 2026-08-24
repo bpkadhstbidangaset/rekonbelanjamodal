@@ -35,7 +35,7 @@ def normalize_code(val):
         return ""
     return re.sub(r'[^a-zA-Z0-9]', '', str(val).strip())
 
-# Helper pembersihan nominal Rupiah
+# Helper pembersihan nominal Rupiah ke float
 def clean_currency(val):
     if pd.isna(val):
         return 0.0
@@ -53,6 +53,13 @@ def clean_currency(val):
         return float(val_str)
     except:
         return 0.0
+
+# Helper format ke Rupiah string
+def format_rupiah(val):
+    try:
+        return f"Rp {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except:
+        return "Rp 0,00"
 
 # Helper membaca Acuan RAK
 def parse_rak_data(file):
@@ -106,7 +113,7 @@ if file_rak and file_sipd and file_skpd:
         df_sipd = parse_sipd_data(file_sipd)
         df_skpd = parse_skpd_data(file_skpd)
 
-        # 1. AMBIL KODE REKENING & MAPPING URAIAN DARI ACUAN RAK
+        # 1. MAPPING KODE & URAIAN DARI RAK ACUAN
         col_kode_rek = [c for c in df_rak.columns if 'KODE' in c and 'REK' in c]
         col_uraian_rek = [c for c in df_rak.columns if 'URAIAN' in c and 'REK' in c]
         col_kode_kat = [c for c in df_rak.columns if 'KODE' in c and 'KAT' in c]
@@ -142,7 +149,7 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_filtered = df_sipd.copy()
             selected_skpd_target = "Semua Data SIPD"
 
-        # 3. FILTER SIPD & EKSTRAK KODE REKENING
+        # 3. IDENTIFIKASI & HITUNG SIPD
         def get_matched_code(row_str):
             row_norm = normalize_code(row_str)
             for raw_c in valid_raw_codes:
@@ -160,59 +167,57 @@ if file_rak and file_sipd and file_skpd:
             matched = get_matched_code(row_str)
             return matched if matched else ""
 
-        df_sipd_filtered['Kode_Rekening_Cocok'] = df_sipd_filtered.apply(match_sipd, axis=1)
-        df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Kode_Rekening_Cocok'] != ""].copy()
+        df_sipd_filtered['Kode Rekening (Acuan)'] = df_sipd_filtered.apply(match_sipd, axis=1)
+        df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Kode Rekening (Acuan)'] != ""].copy()
 
-        # Hitung Nominal Realisasi SIPD
         col_debit = [c for c in df_sipd_bm.columns if c.lower() == 'debit']
         sipd_target_col = col_debit[0] if col_debit else df_sipd_bm.columns[-4]
-        df_sipd_bm['Nominal_Clean'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
-        total_sipd_bm = df_sipd_bm['Nominal_Clean'].sum()
+        df_sipd_bm['Nominal Realisasi'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
+        total_sipd_bm = df_sipd_bm['Nominal Realisasi'].sum()
 
-        # 4. FILTER SKPD & EKSTRAK KODE REKENING
+        # 4. IDENTIFIKASI & HITUNG SKPD
         def match_skpd(row):
             first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
             matched = get_matched_code(first_cols_str)
             return matched if matched else ""
 
-        df_skpd['Kode_Rekening_Cocok'] = df_skpd.apply(match_skpd, axis=1)
-        df_skpd_bm = df_skpd[df_skpd['Kode_Rekening_Cocok'] != ""].copy()
+        df_skpd['Kode Rekening (Acuan)'] = df_skpd.apply(match_skpd, axis=1)
+        df_skpd_bm = df_skpd[df_skpd['Kode Rekening (Acuan)'] != ""].copy()
 
-        # Hitung Nominal SKPD (Kolom SEMUA)
         col_semua = [c for c in df_skpd_bm.columns if c.upper() in ['SEMUA', 'TOTAL', 'JUMLAH', 'NILAI']]
         if col_semua:
-            df_skpd_bm['Nominal_Clean'] = df_skpd_bm[col_semua[0]].apply(clean_currency)
+            df_skpd_bm['Nominal SKPD'] = df_skpd_bm[col_semua[0]].apply(clean_currency)
         else:
-            df_skpd_bm['Nominal_Clean'] = df_skpd_bm.iloc[:, -3].apply(clean_currency)
+            df_skpd_bm['Nominal SKPD'] = df_skpd_bm.iloc[:, -3].apply(clean_currency)
 
-        total_skpd_bm = df_skpd_bm['Nominal_Clean'].sum()
+        total_skpd_bm = df_skpd_bm['Nominal SKPD'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
 
-        # 5. TABEL ANALISIS SELISIH PER REKENING
-        grp_sipd = df_sipd_bm.groupby('Kode_Rekening_Cocok')['Nominal_Clean'].sum().rename('Realisasi_SIPD')
-        grp_skpd = df_skpd_bm.groupby('Kode_Rekening_Cocok')['Nominal_Clean'].sum().rename('Entry_SKPD')
+        # 5. PEMBUATAN TABEL ANALISIS REKONSILIASI
+        grp_sipd = df_sipd_bm.groupby('Kode Rekening (Acuan)')['Nominal Realisasi'].sum().rename('Realisasi SIPD')
+        grp_skpd = df_skpd_bm.groupby('Kode Rekening (Acuan)')['Nominal SKPD'].sum().rename('Entry SKPD')
 
         df_rekon = pd.concat([grp_sipd, grp_skpd], axis=1).fillna(0)
-        df_rekon['Selisih'] = df_rekon['Realisasi_SIPD'] - df_rekon['Entry_SKPD']
-        df_rekon['Status'] = df_rekon['Selisih'].apply(lambda x: '✅ Cocok' if abs(x) < 1 else ('🔻 Kurang Catat di SIPD' if x < 0 else '🔺 Belum Terinput SKPD'))
-        df_rekon = df_rekon.reset_index().rename(columns={'index': 'Kode_Rekening', 'Kode_Rekening_Cocok': 'Kode_Rekening'})
+        df_rekon['Selisih'] = df_rekon['Realisasi SIPD'] - df_rekon['Entry SKPD']
+        df_rekon['Status'] = df_rekon['Selisih'].apply(
+            lambda x: '✅ Sesuai (Balance)' if abs(x) < 1 else ('🔻 Realisasi Lebih Kecil' if x < 0 else '🔺 Realisasi Lebih Besar')
+        )
+        df_rekon = df_rekon.reset_index().rename(columns={'Kode Rekening (Acuan)': 'Kode Rekening'})
+        df_rekon['Uraian Rekening (RAK)'] = df_rekon['Kode Rekening'].apply(lambda x: rak_lookup.get(x, 'Belanja Modal'))
 
-        # Tambahkan Deskripsi Uraian
-        df_rekon['Uraian_Rekening'] = df_rekon['Kode_Rekening'].apply(lambda x: rak_lookup.get(x, ''))
-        
-        # Urutkan Kolom
-        df_rekon = df_rekon[['Kode_Rekening', 'Uraian_Rekening', 'Realisasi_SIPD', 'Entry_SKPD', 'Selisih', 'Status']]
+        # Urutan kolom analisis
+        df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi SIPD', 'Entry SKPD', 'Selisih', 'Status']]
         df_rekon = df_rekon.sort_values(by='Selisih', key=abs, ascending=False)
 
         # DASHBOARD METRIK
         st.success(f"✅ Rekonsiliasi selesai untuk: **{selected_skpd_target}**")
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Realisasi SIPD (Sesuai RAK)", f"Rp {total_sipd_bm:,.2f}")
-        col2.metric("Entry SKPD (Sesuai RAK)", f"Rp {total_skpd_bm:,.2f}")
+        col1.metric("Realisasi SIPD (Sesuai RAK)", format_rupiah(total_sipd_bm))
+        col2.metric("Entry SKPD (Sesuai RAK)", format_rupiah(total_skpd_bm))
         col3.metric(
             "Selisih Rekonsiliasi", 
-            f"Rp {total_selisih:,.2f}", 
+            format_rupiah(total_selisih), 
             delta=f"{-total_selisih:,.2f}", 
             delta_color="inverse"
         )
@@ -228,42 +233,73 @@ if file_rak and file_sipd and file_skpd:
         ])
 
         with tab_rekon:
-            st.subheader("📊 Rincian Selisih Antara SIPD & SKPD Per Rekening")
-            st.caption("Daftar diurutkan dari rekening dengan selisih nominal terbesar.")
-            
-            # Format Rupiah untuk Tampilan
-            df_rekon_display = df_rekon.copy()
-            df_rekon_display['Realisasi_SIPD'] = df_rekon_display['Realisasi_SIPD'].apply(lambda x: f"Rp {x:,.2f}")
-            df_rekon_display['Entry_SKPD'] = df_rekon_display['Entry_SKPD'].apply(lambda x: f"Rp {x:,.2f}")
-            df_rekon_display['Selisih'] = df_rekon_display['Selisih'].apply(lambda x: f"Rp {x:,.2f}")
-            
-            st.dataframe(df_rekon_display, use_container_width=True)
+            st.subheader("📊 Tabel Komparasi SIPD vs SKPD Per Rekening")
+            st.caption("Menampilkan rekapitulasi nilai realisasi, nilai entry, selisih nominal, dan status kecocokan.")
 
-            # Tombol Download Hasil Rekonsiliasi
+            df_rekon_view = df_rekon.copy()
+            df_rekon_view['Realisasi SIPD'] = df_rekon_view['Realisasi SIPD'].apply(format_rupiah)
+            df_rekon_view['Entry SKPD'] = df_rekon_view['Entry SKPD'].apply(format_rupiah)
+            df_rekon_view['Selisih'] = df_rekon_view['Selisih'].apply(format_rupiah)
+
+            st.dataframe(df_rekon_view, use_container_width=True, hide_index=True)
+
+            # Tombol Unduh Excel Laporan Rekonsiliasi
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_rekon.to_excel(writer, index=False, sheet_name='Rekonsiliasi')
             excel_data = output.getvalue()
 
             st.download_button(
-                label="📥 Unduh Laporan Selisih (Excel)",
+                label="📥 Unduh Rekapitulasi Rekonsiliasi (Excel)",
                 data=excel_data,
-                file_name=f"Hasil_Rekonsiliasi_{selected_skpd_target}.xlsx",
+                file_name=f"Rekonsiliasi_{selected_skpd_target}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
         with tab1:
-            st.subheader(f"Transaksi SIPD Terkait ({len(df_sipd_bm)} Baris)")
-            st.dataframe(df_sipd_bm, use_container_width=True)
+            st.subheader(f"Transaksi SIPD Terverifikasi RAK ({len(df_sipd_bm)} Baris)")
+            
+            # Merapikan tampilan kolom SIPD
+            cols_sipd_clean = [c for c in df_sipd_bm.columns if not c.startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
+            df_sipd_view = df_sipd_bm[['Kode Rekening (Acuan)'] + cols_sipd_clean + ['Nominal Realisasi']].copy()
+            df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
+            
+            st.dataframe(df_sipd_view, use_container_width=True, hide_index=True)
 
         with tab2:
-            st.subheader(f"Rincian SKPD Terkait ({len(df_skpd_bm)} Baris)")
-            st.dataframe(df_skpd_bm, use_container_width=True)
+            st.subheader(f"Rincian Pengadaan SKPD Terverifikasi RAK ({len(df_skpd_bm)} Baris)")
+            
+            # Merapikan nama kolom SKPD (Ubah JENIS BELANJA, :, SEMUA -> Nama yang Jelas)
+            df_skpd_view = df_skpd_bm.copy()
+            rename_map = {}
+            if len(df_skpd_view.columns) >= 3:
+                rename_map[df_skpd_view.columns[0]] = "Kode Rekening / Klasifikasi"
+                rename_map[df_skpd_view.columns[1]] = "Uraian Belanja SKPD"
+            if col_semua:
+                rename_map[col_semua[0]] = "Total Anggaran / Realisasi"
+            
+            df_skpd_view = df_skpd_view.rename(columns=rename_map)
+            
+            # Buang kolom Unnamed dan kolom pembantu internal
+            valid_cols_skpd = [c for c in df_skpd_view.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK']]
+            
+            df_skpd_display = df_skpd_view[valid_cols_skpd + ['Nominal SKPD']].copy()
+            df_skpd_display['Nominal SKPD'] = df_skpd_display['Nominal SKPD'].apply(format_rupiah)
+            df_skpd_display = df_skpd_display.rename(columns={'Nominal SKPD': 'Nilai Bersih (Rupiah)'})
+
+            st.dataframe(df_skpd_display, use_container_width=True, hide_index=True)
 
         with tab3:
-            st.subheader("Baris SKPD di Luar Acuan RAK")
-            df_skpd_elim = df_skpd[df_skpd['Kode_Rekening_Cocok'] == ""].copy()
-            st.dataframe(df_skpd_elim, use_container_width=True)
+            st.subheader("Rincian Baris SKPD di Luar Acuan RAK (Tidak Masuk Hitungan)")
+            st.caption("Baris-baris ini merupakan belanja barang/jasa rutin atau header yang tidak terdaftar pada RAK Belanja Modal.")
+            
+            df_skpd_elim = df_skpd[df_skpd['Kode Rekening (Acuan)'] == ""].copy()
+            
+            # Bersihkan kolom Unnamed
+            cols_elim_clean = [c for c in df_skpd_elim.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Is_Acuan_RAK']]
+            df_elim_display = df_skpd_elim[cols_elim_clean].copy()
+            
+            st.dataframe(df_elim_display, use_container_width=True, hide_index=True)
 
     except Exception as e:
         st.error(f"Terjadi kesalahan pemrosesan data: {e}")
