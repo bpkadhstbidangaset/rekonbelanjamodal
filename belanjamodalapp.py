@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Bubble Card & Auto-Sum Info Box
+# Custom CSS Khusus Bubble Card & Header Modern
 st.markdown("""
 <style>
     .app-topbar {
@@ -127,7 +127,6 @@ st.markdown("""
         margin-bottom: 16px;
     }
 
-    /* Floating Auto-Sum Box ala Excel */
     .calc-box {
         background-color: #0F172A;
         color: #FFFFFF;
@@ -501,13 +500,13 @@ if file_rak and file_sipd and file_skpd:
             excel_data = output.getvalue()
 
             st.download_button(
-                label="📥 Unduh Rekapitulasi Excel",
+                label="📥 Unduh Rekapitulasi Excel (.xlsx)",
                 data=excel_data,
                 file_name=f"Rekonsiliasi_{selected_skpd_target}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # === TAB 2: DIAGNOSA DETAIL SELISIH (DILENGKAPI FITUR DRAG / SELECT AUTO-SUM) ===
+        # === TAB 2: DIAGNOSA DETAIL SELISIH (DILENGKAPI TOMBOL UNDUH EXCEL TERPISAH RAPI) ===
         with tab_investigasi:
             st.markdown("#### **Diagnosa Per Kode Rekening yang Berselisih**")
             
@@ -585,7 +584,7 @@ if file_rak and file_sipd and file_skpd:
                 tot_u_skpd = df_unmatched_skpd['Nominal SKPD'].sum() if len(df_unmatched_skpd) > 0 else 0.0
                 tot_u_sipd = df_unmatched_sipd['Nominal Realisasi'].sum() if len(df_unmatched_sipd) > 0 else 0.0
 
-                st.caption("💡 **Tips Interaktif**: Anda bisa memilih / men-drag baris tabel (klik centang di baris kiri) untuk otomatis menjumlahkan total nominal baris yang dipilih.")
+                st.caption("💡 **Tips**: Klik centang di baris kiri untuk auto-sum, atau klik tombol unduh Excel di bawah tabel agar kolom terpisah rapi.")
 
                 c_sel1, c_sel2 = st.columns(2)
                 
@@ -614,10 +613,9 @@ if file_rak and file_sipd and file_skpd:
                         df_u_skpd_clean = pd.DataFrame({
                             'Rincian Pengadaan di SIMBADA': df_unmatched_skpd.apply(format_simbada_desc, axis=1),
                             'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah),
-                            '_raw_val': df_unmatched_skpd['Nominal SKPD'].values
+                            'Nilai_Nominal_Angka': df_unmatched_skpd['Nominal SKPD'].values
                         })
                         
-                        # Dataframe Interaktif dengan Pemilihan Baris
                         skpd_selection = st.dataframe(
                             df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai Tercatat']], 
                             use_container_width=True, 
@@ -627,16 +625,29 @@ if file_rak and file_sipd and file_skpd:
                             key="skpd_sel_box"
                         )
                         
-                        # Perhitungan Otomatis Baris yang Dipilih / Di-drag
                         sel_skpd_rows = skpd_selection.selection.rows
                         if sel_skpd_rows:
-                            sel_sum_skpd = df_u_skpd_clean.iloc[sel_skpd_rows]['_raw_val'].sum()
+                            sel_sum_skpd = df_u_skpd_clean.iloc[sel_skpd_rows]['Nilai_Nominal_Angka'].sum()
                             st.markdown(f"""
                             <div class="calc-box">
                                 <div>📌 <b>{len(sel_skpd_rows)} Baris Terpilih</b></div>
                                 <div>∑ Total: <b>{format_rupiah(sel_sum_skpd)}</b></div>
                             </div>
                             """, unsafe_allow_html=True)
+
+                        # Tombol Ekspor Excel Rapi
+                        out_skpd = io.BytesIO()
+                        with pd.ExcelWriter(out_skpd, engine='openpyxl') as writer:
+                            df_export_skpd = df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai Tercatat (Rp)'})
+                            df_export_skpd.to_excel(writer, index=False, sheet_name='SIMBADA_Belum_LRA')
+                        
+                        st.download_button(
+                            label="📥 Unduh Rincian SIMBADA (Excel .xlsx)",
+                            data=out_skpd.getvalue(),
+                            file_name=f"SIMBADA_Belum_LRA_{selected_code_target}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="btn_down_skpd"
+                        )
                     else:
                         st.success("✅ Semua data SIMBADA sudah klop dengan LRA.")
 
@@ -662,10 +673,9 @@ if file_rak and file_sipd and file_skpd:
                             'Tanggal': tgl_series.astype(str),
                             'Keterangan Realisasi SP2D': ket_series.astype(str),
                             'Nilai SP2D': df_unmatched_sipd['Nominal Realisasi'].apply(format_rupiah),
-                            '_raw_val': df_unmatched_sipd['Nominal Realisasi'].values
+                            'Nilai_Nominal_Angka': df_unmatched_sipd['Nominal Realisasi'].values
                         })
                         
-                        # Dataframe Interaktif dengan Pemilihan Baris
                         sipd_selection = st.dataframe(
                             df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai SP2D']], 
                             use_container_width=True, 
@@ -675,16 +685,29 @@ if file_rak and file_sipd and file_skpd:
                             key="sipd_sel_box"
                         )
 
-                        # Perhitungan Otomatis Baris yang Dipilih / Di-drag
                         sel_sipd_rows = sipd_selection.selection.rows
                         if sel_sipd_rows:
-                            sel_sum_sipd = df_u_sipd_clean.iloc[sel_sipd_rows]['_raw_val'].sum()
+                            sel_sum_sipd = df_u_sipd_clean.iloc[sel_sipd_rows]['Nilai_Nominal_Angka'].sum()
                             st.markdown(f"""
                             <div class="calc-box">
                                 <div>📌 <b>{len(sel_sipd_rows)} Baris Terpilih</b></div>
                                 <div>∑ Total: <b>{format_rupiah(sel_sum_sipd)}</b></div>
                             </div>
                             """, unsafe_allow_html=True)
+
+                        # Tombol Ekspor Excel Rapi
+                        out_sipd = io.BytesIO()
+                        with pd.ExcelWriter(out_sipd, engine='openpyxl') as writer:
+                            df_export_sipd = df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai SP2D (Rp)'})
+                            df_export_sipd.to_excel(writer, index=False, sheet_name='LRA_Belum_SIMBADA')
+                        
+                        st.download_button(
+                            label="📥 Unduh Rincian SP2D LRA (Excel .xlsx)",
+                            data=out_sipd.getvalue(),
+                            file_name=f"LRA_Belum_SIMBADA_{selected_code_target}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="btn_down_sipd"
+                        )
                     else:
                         st.success("✅ Semua realisasi LRA SP2D sudah tercatat di SIMBADA.")
 
