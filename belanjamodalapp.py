@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Bubble Card & Header Modern
+# Custom CSS Khusus Bubble Card & Header Modern
 st.markdown("""
 <style>
     .app-topbar {
@@ -173,6 +173,19 @@ def format_rupiah(val):
     except:
         return "Rp 0,00"
 
+# Helper ekstraksi tanggal dari teks kontrak SIMBADA (jika ada)
+def extract_date_from_text(text):
+    if not isinstance(text, str):
+        return "-"
+    # Pola: tanggal 23 April 2026 atau 23/04/2026 atau 2026-04-23
+    match_tgl = re.search(r'(\d{1,2}\s+(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\s+\d{4})', text, re.IGNORECASE)
+    if match_tgl:
+        return match_tgl.group(1)
+    match_num = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', text)
+    if match_num:
+        return match_num.group(1)
+    return "-"
+
 # Helper membaca Acuan RAK
 def parse_rak_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
@@ -214,23 +227,65 @@ def parse_skpd_data(file):
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel LRA (Mendukung Versi 1 LRA Dokumen & Versi 2 Realisasi Akuntansi)
-def parse_sipd_data(file):
-    df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
-    header_idx = 0
-    for idx, row in df_raw.iterrows():
-        row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-        # Cek header Versi 1 (Per Dokumen) atau Versi 2 (Buku Besar)
-        if ('NAMA SKPD' in row_str and 'KODE REKENING' in row_str) or ('NILAI REALISASI' in row_str):
-            header_idx = idx
-            break
-        elif ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
-            header_idx = idx
-            break
+# Helper membaca Excel LRA (Mendukung Multi-Sheet SEMESTER 1 & SEMESTER 2)
+def parse_lra_multi_sheet(file, selected_semester):
+    if file.name.endswith(('.xlsx', '.xls')):
+        xls = pd.ExcelFile(file)
+        sheet_names = xls.sheet_names
+        
+        has_sem_sheets = any('SEMESTER' in s.upper() for s in sheet_names)
+        
+        sheets_to_read = []
+        if has_sem_sheets:
+            if selected_semester == "Semester 1":
+                sheets_to_read = [s for s in sheet_names if '1' in s or 'I' in s]
+            elif selected_semester == "Semester 2":
+                sheets_to_read = [s for s in sheet_names if '2' in s or 'II' in s]
+            else:
+                sheets_to_read = sheet_names
+        else:
+            sheets_to_read = [sheet_names[0]]
+
+        df_list = []
+        for s_name in sheets_to_read:
+            df_raw = pd.read_excel(file, sheet_name=s_name, header=None)
+            header_idx = 0
+            for idx, row in df_raw.iterrows():
+                row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
+                if ('NAMA SKPD' in row_str and 'KODE REKENING' in row_str) or ('NILAI REALISASI' in row_str):
+                    header_idx = idx
+                    break
+                elif ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
+                    header_idx = idx
+                    break
             
-    df = pd.read_excel(file, skiprows=header_idx) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, skiprows=header_idx)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+            df_sheet = pd.read_excel(file, sheet_name=s_name, skiprows=header_idx)
+            df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
+            df_sheet['__SHEET_SOURCE__'] = s_name
+            df_list.append(df_sheet)
+
+        df_combined = pd.concat(df_list, ignore_index=True) if df_list else pd.DataFrame()
+    else:
+        df_raw = pd.read_csv(file, header=None)
+        header_idx = 0
+        for idx, row in df_raw.iterrows():
+            row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
+            if ('DEBIT' in row_str or 'SKPD' in row_str or 'URAIAN' in row_str) and 'REKAPITULASI' not in row_str:
+                header_idx = idx
+                break
+        df_combined = pd.read_csv(file, skiprows=header_idx)
+        df_combined.columns = [str(c).strip() for c in df_combined.columns]
+
+    if selected_semester != "Semua Periode (Semester 1 & 2)":
+        col_bulan = [c for c in df_combined.columns if c.lower() in ['bulan', 'periode spd']]
+        if col_bulan:
+            c_b = col_bulan[0]
+            if selected_semester == "Semester 1":
+                df_combined = df_combined[df_combined[c_b].astype(str).str.upper().str.contains('JAN|FEB|MAR|APR|MEI|JUN|1|I')].copy()
+            elif selected_semester == "Semester 2":
+                df_combined = df_combined[df_combined[c_b].astype(str).str.upper().str.contains('JUL|AGU|SEP|OKT|NOP|NOV|DES|2|II')].copy()
+
+    return df_combined
 
 # --- SIDEBAR MENU & UPLOAD ---
 with st.sidebar:
@@ -240,14 +295,22 @@ with st.sidebar:
     
     st.markdown("##### 📁 **Upload Dokumen Sumber**")
     file_rak = st.file_uploader("1. Acuan RAK Belanja Modal", type=['xlsx', 'xls', 'csv'])
-    file_sipd = st.file_uploader("2. Data Realisasi LRA (Versi 1 atau 2)", type=['xlsx', 'xls', 'csv'])
+    file_sipd = st.file_uploader("2. Data Realisasi LRA / Kasda", type=['xlsx', 'xls', 'csv'])
     file_skpd = st.file_uploader("3. Data Entry SIMBADA", type=['xlsx', 'xls', 'csv'])
+
+    st.markdown("---")
+    st.markdown("##### ⏱️ **Filter Periode Rekonsiliasi**")
+    selected_semester = st.selectbox(
+        "Pilih Periode Semester LRA:",
+        options=["Semua Periode (Semester 1 & 2)", "Semester 1", "Semester 2"],
+        index=0
+    )
 
 # --- PROSES UTAMA ---
 if file_rak and file_sipd and file_skpd:
     try:
         df_rak = parse_rak_data(file_rak)
-        df_sipd = parse_sipd_data(file_sipd)
+        df_sipd = parse_lra_multi_sheet(file_sipd, selected_semester)
         df_skpd = parse_skpd_data(file_skpd)
 
         # 1. MAPPING KODE & URAIAN RAK
@@ -273,8 +336,7 @@ if file_rak and file_sipd and file_skpd:
 
         norm_acuan_set = {normalize_code(k) for k in valid_raw_codes if len(normalize_code(k)) >= 5}
 
-        # 2. FILTER SKPD TARGET PADA FILE LRA
-        # Cari nama kolom SKPD (misal: 'Nama SKPD', 'SKPD', 'NAMA_SKPD')
+        # 2. FILTER SKPD TARGET
         col_skpd_lra = [c for c in df_sipd.columns if c.strip().lower() in ['nama skpd', 'skpd', 'nama_skpd', 'dinas', 'opd']]
         if not col_skpd_lra:
             col_skpd_lra = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd'])]
@@ -344,7 +406,7 @@ if file_rak and file_sipd and file_skpd:
         df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI DATA REALISASI LRA (OTOMATIS SESUAI STRUKTUR FILE)
+        # 4. IDENTIFIKASI DATA REALISASI LRA
         def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
@@ -357,7 +419,6 @@ if file_rak and file_sipd and file_skpd:
         df_sipd_filtered['Kode Rekening (Acuan)'] = df_sipd_filtered.apply(match_sipd_row, axis=1)
         df_sipd_bm = df_sipd_filtered[df_sipd_filtered['Kode Rekening (Acuan)'] != ""].copy()
 
-        # Deteksi kolom nominal realisasi (Cari 'Nilai Realisasi', 'Nilai SP2D', atau 'Debit')
         col_nom_lra = [c for c in df_sipd_bm.columns if c.strip().lower() in ['nilai realisasi', 'nilai_realisasi', 'nilai sp2d', 'debit']]
         if col_nom_lra:
             sipd_target_col = col_nom_lra[0]
@@ -393,7 +454,7 @@ if file_rak and file_sipd and file_skpd:
         st.markdown(f"""
         <div class="app-topbar">
             <div>
-                <div class="breadcrumb-title">🏠 Beranda / Penatausahaan Aset / Rekonsiliasi Belanja Modal</div>
+                <div class="breadcrumb-title">🏠 Beranda / Penatausahaan Aset / Rekonsiliasi Belanja Modal ({selected_semester})</div>
                 <div class="breadcrumb-active">{selected_skpd_target}</div>
             </div>
             <div>
@@ -418,7 +479,7 @@ if file_rak and file_sipd and file_skpd:
                     <div class="card-val-rp">Rp</div>
                     <div class="card-val-number">{f"{total_sipd_bm:,.2f}"[0:-3].replace(',', '.')}</div>
                 </div>
-                <span class="pill-badge pill-blue">Kas Daerah Cair</span>
+                <span class="pill-badge pill-blue">Kasda: {selected_semester}</span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -482,7 +543,7 @@ if file_rak and file_sipd and file_skpd:
 
         # === TAB 1: REKONSILIASI ===
         with tab_rekon:
-            st.markdown("#### **Tabel Komparasi Belanja Modal (Realisasi LRA vs SIMBADA)**")
+            st.markdown(f"#### **Tabel Komparasi Belanja Modal ({selected_semester})**")
             
             f_col1, f_col2 = st.columns([2, 2])
             with f_col1:
@@ -517,13 +578,13 @@ if file_rak and file_sipd and file_skpd:
             st.download_button(
                 label="📥 Unduh Rekapitulasi Excel (.xlsx)",
                 data=excel_data,
-                file_name=f"Rekonsiliasi_{selected_skpd_target}.xlsx",
+                file_name=f"Rekonsiliasi_{selected_skpd_target}_{selected_semester}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
         # === TAB 2: DIAGNOSA DETAIL SELISIH ===
         with tab_investigasi:
-            st.markdown("#### **Diagnosa Per Kode Rekening yang Berselisih**")
+            st.markdown(f"#### **Diagnosa Per Kode Rekening yang Berselisih ({selected_semester})**")
             
             df_selisih_only = df_rekon[abs(df_rekon['Selisih']) > 1].copy()
             
@@ -543,10 +604,10 @@ if file_rak and file_sipd and file_skpd:
                             Realisasi LRA Lebih Kecil Rp {format_rupiah(abs(row_info['Selisih']))[3:]}
                         </div>
                         <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> Nilai kontrak yang diinput di <b>SIMBADA</b> tercatat <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, namun dana SP2D yang cair di <b>LRA Kasda</b> baru sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>.
+                            <b>Analisis:</b> Total entry pada <b>SIMBADA</b> tercatat <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>, sedangkan SP2D yang cair di <b>LRA Kasda ({selected_semester})</b> baru tercatat sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>.
                         </p>
                         <div style="background:#FEE2E2; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#991B1B; font-weight:600;">
-                            👉 Langkah: Cek apakah pekerjaan ini dibayar bertahap (termin) sehingga sisa terminnya belum terbit SP2D.
+                            👉 Catatan: Paket SIMBADA di bawah kemungkinan merupakan pekerjaan termin atau SP2D-nya baru cair pada semester berikutnya.
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -558,7 +619,7 @@ if file_rak and file_sipd and file_skpd:
                             Realisasi LRA Lebih Besar Rp {format_rupiah(row_info['Selisih'])[3:]}
                         </div>
                         <p style="color:#475569; margin:0 0 8px 0; font-size:0.9rem;">
-                            <b>Analisis:</b> SP2D yang cair di <b>LRA Kasda</b> tercatat <b>{format_rupiah(row_info['Realisasi LRA'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.
+                            <b>Analisis:</b> SP2D yang cair di <b>LRA Kasda ({selected_semester})</b> sebesar <b>{format_rupiah(row_info['Realisasi LRA'])}</b>, namun baru tercatat di <b>SIMBADA</b> sebesar <b>{format_rupiah(row_info['Entry SIMBADA'])}</b>.
                         </p>
                         <div style="background:#DBEAFE; padding:8px 12px; border-radius:8px; font-size:0.85rem; color:#1E40AF; font-weight:600;">
                             👉 Langkah: Pengurus Barang SKPD wajib menginput SP2D yang belum tercatat ke aplikasi SIMBADA.
@@ -599,7 +660,7 @@ if file_rak and file_sipd and file_skpd:
                 tot_u_skpd = df_unmatched_skpd['Nominal SKPD'].sum() if len(df_unmatched_skpd) > 0 else 0.0
                 tot_u_sipd = df_unmatched_sipd['Nominal Realisasi'].sum() if len(df_unmatched_sipd) > 0 else 0.0
 
-                st.caption("💡 **Tips**: Klik centang di baris kiri untuk auto-sum, atau klik tombol unduh Excel di bawah tabel agar kolom terpisah rapi.")
+                st.caption("💡 **Info**: Tanggal pada tabel SIMBADA diekstrak otomatis dari teks kontrak/BAP. Gunakan fitur centang baris untuk menghitung akumulasi nominal.")
 
                 c_sel1, c_sel2 = st.columns(2)
                 
@@ -618,21 +679,25 @@ if file_rak and file_sipd and file_skpd:
                         def format_simbada_desc(row):
                             text_parts = []
                             for c in df_unmatched_skpd.columns:
-                                if c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK']:
+                                if c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Is_Acuan_RAK', '__SHEET_SOURCE__']:
                                     v = row[c]
                                     if pd.notna(v) and str(v).strip() not in ['', 'nan', 'None', 'NaN']:
                                         if not (isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit() and len(v) > 6)):
                                             text_parts.append(str(v).strip())
                             return ' — '.join(text_parts) if text_parts else "Rincian Pengadaan SIMBADA"
 
+                        full_desc_series = df_unmatched_skpd.apply(format_simbada_desc, axis=1)
+                        tgl_simbada_series = full_desc_series.apply(extract_date_from_text)
+
                         df_u_skpd_clean = pd.DataFrame({
-                            'Rincian Pengadaan di SIMBADA': df_unmatched_skpd.apply(format_simbada_desc, axis=1),
+                            'Tgl Kontrak': tgl_simbada_series,
+                            'Rincian Pengadaan SIMBADA': full_desc_series,
                             'Nilai Tercatat': df_unmatched_skpd['Nominal SKPD'].apply(format_rupiah),
                             'Nilai_Nominal_Angka': df_unmatched_skpd['Nominal SKPD'].values
                         })
                         
                         skpd_selection = st.dataframe(
-                            df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai Tercatat']], 
+                            df_u_skpd_clean[['Tgl Kontrak', 'Rincian Pengadaan SIMBADA', 'Nilai Tercatat']], 
                             use_container_width=True, 
                             hide_index=True,
                             on_select="rerun",
@@ -652,13 +717,13 @@ if file_rak and file_sipd and file_skpd:
 
                         out_skpd = io.BytesIO()
                         with pd.ExcelWriter(out_skpd, engine='openpyxl') as writer:
-                            df_export_skpd = df_u_skpd_clean[['Rincian Pengadaan di SIMBADA', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai Tercatat (Rp)'})
+                            df_export_skpd = df_u_skpd_clean[['Tgl Kontrak', 'Rincian Pengadaan SIMBADA', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai Tercatat (Rp)'})
                             df_export_skpd.to_excel(writer, index=False, sheet_name='SIMBADA_Belum_LRA')
                         
                         st.download_button(
                             label="📥 Unduh Rincian SIMBADA (Excel .xlsx)",
                             data=out_skpd.getvalue(),
-                            file_name=f"SIMBADA_Belum_LRA_{selected_code_target}.xlsx",
+                            file_name=f"SIMBADA_Belum_LRA_{selected_code_target}_{selected_semester}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="btn_down_skpd"
                         )
@@ -677,7 +742,6 @@ if file_rak and file_sipd and file_skpd:
                     """, unsafe_allow_html=True)
                     
                     if len(df_unmatched_sipd) > 0:
-                        # Otomatis deteksi kolom tanggal & keterangan baik di Versi 1 maupun Versi 2
                         col_tgl = [c for c in df_unmatched_sipd.columns if any(k in c.lower() for k in ['tanggal sp2d', 'tanggal dokumen', 'tanggal'])]
                         col_ket = [c for c in df_unmatched_sipd.columns if any(k in c.lower() for k in ['keterangan dokumen', 'keterangan', 'uraian'])]
                         
@@ -685,14 +749,14 @@ if file_rak and file_sipd and file_skpd:
                         ket_series = df_unmatched_sipd[col_ket[0]] if col_ket else df_unmatched_sipd.iloc[:, 1]
                         
                         df_u_sipd_clean = pd.DataFrame({
-                            'Tanggal': tgl_series.astype(str),
+                            'Tanggal SP2D': tgl_series.astype(str),
                             'Keterangan Realisasi SP2D': ket_series.astype(str),
                             'Nilai SP2D': df_unmatched_sipd['Nominal Realisasi'].apply(format_rupiah),
                             'Nilai_Nominal_Angka': df_unmatched_sipd['Nominal Realisasi'].values
                         })
                         
                         sipd_selection = st.dataframe(
-                            df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai SP2D']], 
+                            df_u_sipd_clean[['Tanggal SP2D', 'Keterangan Realisasi SP2D', 'Nilai SP2D']], 
                             use_container_width=True, 
                             hide_index=True,
                             on_select="rerun",
@@ -712,13 +776,13 @@ if file_rak and file_sipd and file_skpd:
 
                         out_sipd = io.BytesIO()
                         with pd.ExcelWriter(out_sipd, engine='openpyxl') as writer:
-                            df_export_sipd = df_u_sipd_clean[['Tanggal', 'Keterangan Realisasi SP2D', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai SP2D (Rp)'})
+                            df_export_sipd = df_u_sipd_clean[['Tanggal SP2D', 'Keterangan Realisasi SP2D', 'Nilai_Nominal_Angka']].rename(columns={'Nilai_Nominal_Angka': 'Nilai SP2D (Rp)'})
                             df_export_sipd.to_excel(writer, index=False, sheet_name='LRA_Belum_SIMBADA')
                         
                         st.download_button(
                             label="📥 Unduh Rincian SP2D LRA (Excel .xlsx)",
                             data=out_sipd.getvalue(),
-                            file_name=f"LRA_Belum_SIMBADA_{selected_code_target}.xlsx",
+                            file_name=f"LRA_Belum_SIMBADA_{selected_code_target}_{selected_semester}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="btn_down_sipd"
                         )
@@ -730,15 +794,15 @@ if file_rak and file_sipd and file_skpd:
 
         # === TAB 3: GRAFIK KOMPARASI ===
         with tab_grafik:
-            st.markdown("#### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA**")
+            st.markdown(f"#### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA ({selected_semester})**")
             df_chart = df_rekon[['Kode Rekening', 'Realisasi LRA', 'Entry SIMBADA']].copy()
             df_chart = df_chart.set_index('Kode Rekening')
             st.bar_chart(df_chart, height=380)
 
         # === TAB 4: DETAIL REALISASI LRA ===
         with tab1:
-            st.markdown(f"#### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris)**")
-            cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi']]
+            st.markdown(f"#### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris - {selected_semester})**")
+            cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi', '__SHEET_SOURCE__']]
             df_sipd_view = df_sipd_bm[['Kode Rekening (Acuan)'] + cols_sipd_clean + ['Nominal Realisasi']].copy()
             df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
             st.dataframe(df_sipd_view, use_container_width=True, hide_index=True)
