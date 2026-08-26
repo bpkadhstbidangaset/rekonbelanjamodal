@@ -11,56 +11,116 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-# === 3 BUBBLE STAT CARDS ===
-        k1, k2, k3 = st.columns(3)
-        
-        with k1:
-            st.markdown(f"""
-            <div class="bubble-card">
-                <div class="card-top-row">
-                    <span class="card-title-label">Realisasi LRA</span>
-                    <div class="icon-bubble icon-blue">🏛️</div>
-                </div>
-                <div>
-                    <div class="card-val-rp">Rp</div>
-                    <div class="card-val-number">{f"{total_sipd_bm:,.2f}"[0:-3].replace(',', '.')}</div>
-                </div>
-                <span class="pill-badge pill-blue">Kasda: {selected_semester}</span>
-            </div>
-            """, unsafe_allow_html=True)
 
-        with k2:
-            st.markdown(f"""
-            <div class="bubble-card">
-                <div class="card-top-row">
-                    <span class="card-title-label">Entry SIMBADA (Aset)</span>
-                    <div class="icon-bubble icon-purple">📋</div>
-                </div>
-                <div>
-                    <div class="card-val-rp">Rp</div>
-                    <div class="card-val-number">{f"{total_skpd_bm:,.2f}"[0:-3].replace(',', '.')}</div>
-                </div>
-                <span class="pill-badge pill-purple">Total Sesuai RAK</span>
-            </div>
-            """, unsafe_allow_html=True)
+# Custom CSS Khusus Bubble Card & Header Modern
+st.markdown("""
+<style>
+    .app-topbar {
+        background: #FFFFFF;
+        padding: 16px 24px;
+        border-radius: 16px;
+        box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+        border: 1px solid #E2E8F0;
+    }
+    .breadcrumb-title {
+        color: #64748B;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-bottom: 2px;
+    }
+    .breadcrumb-active {
+        color: #0F172A;
+        font-weight: 800;
+        font-size: 1.25rem;
+    }
 
-        with k3:
-            st.markdown(f"""
-            <div class="bubble-card">
-                <div class="card-top-row">
-                    <span class="card-title-label">Selisih Rekonsiliasi</span>
-                    <div class="icon-bubble {'icon-green' if abs(total_selisih) < 1 else 'icon-red'}">⚖️</div>
-                </div>
-                <div>
-                    <div class="card-val-rp">Rp</div>
-                    <div class="card-val-number">{f"{total_selisih:,.2f}"[0:-3].replace(',', '.')}</div>
-                </div>
-                <span class="pill-badge {'pill-green' if abs(total_selisih) < 1 else 'pill-red'}">
-                    {'Nol (0) Selisih' if abs(total_selisih) < 1 else 'Perlu Penyesuaian'}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+    .bubble-card {
+        background: #FFFFFF;
+        border-radius: 20px;
+        padding: 20px 22px;
+        box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
+        border: 1px solid #E2E8F0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .card-top-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .card-title-label {
+        font-size: 0.78rem;
+        color: #64748B;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .icon-bubble {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+    }
+    .icon-blue { background-color: #EFF6FF; }
+    .icon-purple { background-color: #FAF5FF; }
+    .icon-red { background-color: #FEF2F2; }
+    .icon-green { background-color: #F0FDF4; }
 
+    .card-val-rp {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #0F172A;
+        margin-bottom: -2px;
+    }
+    .card-val-number {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0F172A;
+        margin-bottom: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .pill-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        width: fit-content;
+    }
+    .pill-blue { background: #DBEAFE; color: #1E40AF; }
+    .pill-purple { background: #F3E8FF; color: #6B21A8; }
+    .pill-red { background: #FEE2E2; color: #991B1B; }
+    .pill-green { background: #DCFCE7; color: #15803D; }
+
+    .action-box-red {
+        background-color: #FEF2F2;
+        border-left: 5px solid #EF4444;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    }
+    .action-box-blue {
+        background-color: #EFF6FF;
+        border-left: 5px solid #3B82F6;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Helper normalisasi kode
 def normalize_code(val):
@@ -364,7 +424,6 @@ if file_rak and file_sipd and file_skpd:
         total_sipd_bm = df_rekon['Realisasi LRA'].sum()
         total_skpd_bm = df_rekon['Entry SIMBADA'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
-        total_non_rak = df_skpd_non_rak['Nominal SKPD'].sum()
 
         # === TOP BAR HEADER BUBBLE ===
         st.markdown(f"""
@@ -381,8 +440,8 @@ if file_rak and file_sipd and file_skpd:
         </div>
         """, unsafe_allow_html=True)
 
-        # === 4 BUBBLE STAT CARDS ===
-        k1, k2, k3, k4 = st.columns(4)
+        # === 3 BUBBLE STAT CARDS ===
+        k1, k2, k3 = st.columns(3)
         
         with k1:
             st.markdown(f"""
@@ -431,31 +490,15 @@ if file_rak and file_sipd and file_skpd:
             </div>
             """, unsafe_allow_html=True)
 
-        with k4:
-            st.markdown(f"""
-            <div class="bubble-card">
-                <div class="card-top-row">
-                    <span class="card-title-label">SIMBADA Non-RAK</span>
-                    <div class="icon-bubble icon-red">🗑️</div>
-                </div>
-                <div>
-                    <div class="card-val-rp">Rp</div>
-                    <div class="card-val-number">{f"{total_non_rak:,.2f}"[0:-3].replace(',', '.')}</div>
-                </div>
-                <span class="pill-badge pill-red">{len(df_skpd_non_rak)} Item Dieliminasi</span>
-            </div>
-            """, unsafe_allow_html=True)
-
         st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
         # === TAMPILAN TAB UTAMA ===
-        tab_rekon, tab_investigasi, tab_grafik, tab1, tab2, tab_elim = st.tabs([
+        tab_rekon, tab_investigasi, tab_grafik, tab1, tab2 = st.tabs([
             "⚖️ Tabel Rekonsiliasi",
             "🔎 Diagnosa & Rincian Selisih",
             "📊 Grafik Komparasi Rekening",
             "🏛️ Data Realisasi LRA", 
-            "📋 Data SIMBADA",
-            "🗑️ SIMBADA Dieliminasi (Non-RAK)"
+            "📋 Data SIMBADA"
         ])
 
         with tab_rekon:
@@ -600,31 +643,5 @@ if file_rak and file_sipd and file_skpd:
             df_skpd_view['Nominal SKPD'] = df_skpd_view['Nominal SKPD'].apply(format_rupiah)
             st.dataframe(df_skpd_view, use_container_width=True, hide_index=True)
 
-        with tab_elim:
-            st.markdown(f"#### **Daftar Entry SIMBADA Dieliminasi ({len(df_skpd_non_rak)} Item Non-RAK)**")
-            st.caption("Baris di bawah ini merupakan belanja modal SIMBADA yang **Kode Rekening Pengampunya tidak terdaftar pada file acuan RAK Belanja Modal** (Salah Kode Rekening).")
-            
-            if len(df_skpd_non_rak) > 0:
-                cols_elim_keep = [c for c in df_skpd_non_rak.columns if not str(c).startswith('Unnamed') and c not in ['Status RAK', 'Is Transaction']]
-                df_elim_view = df_skpd_non_rak[cols_elim_keep].copy()
-                df_elim_view['Nominal SKPD'] = df_elim_view['Nominal SKPD'].apply(format_rupiah)
-                st.dataframe(df_elim_view, use_container_width=True, hide_index=True)
-
-                out_elim = io.BytesIO()
-                with pd.ExcelWriter(out_elim, engine='openpyxl') as writer:
-                    df_skpd_non_rak[cols_elim_keep].to_excel(writer, index=False, sheet_name='SIMBADA_Non_RAK')
-                
-                st.download_button(
-                    label="📥 Unduh Data SIMBADA Dieliminasi (Excel .xlsx)",
-                    data=out_elim.getvalue(),
-                    file_name=f"SIMBADA_Dieliminasi_Non_RAK_{selected_skpd_target}_{selected_semester}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_down_elim"
-                )
-            else:
-                st.success("🎉 Tidak ada data SIMBADA yang dieliminasi. Semua baris belanja modal tercantum pada acuan RAK.")
-
     except Exception as e:
-        st.error(f"Terjadi kesalahan pemrosesan data: {e}")
-else:
-    st.info("👋 **Selamat Datang di Mesin Rekon Belanja Modal.** Silakan unggah ketiga file data di menu samping untuk memulai pencocokan.")
+        st.error(f"Terjadi kesalahan saat memproses data: {str(e)}")
