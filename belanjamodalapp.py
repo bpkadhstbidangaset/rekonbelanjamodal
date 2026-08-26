@@ -119,28 +119,16 @@ st.markdown("""
         padding: 16px 20px;
         margin-bottom: 16px;
     }
-
-    .calc-box {
-        background-color: #0F172A;
-        color: #FFFFFF;
-        padding: 12px 18px;
-        border-radius: 10px;
-        font-size: 0.9rem;
-        margin-top: 10px;
-        display: flex;
-        gap: 20px;
-        align-items: center;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# Helper normalisasi kode[cite: 1]
+# Helper normalisasi kode
 def normalize_code(val):
     if pd.isna(val):
         return ""
     return re.sub(r'[^a-zA-Z0-9]', '', str(val).strip())
 
-# Helper pembersihan nominal Rupiah ke float[cite: 1]
+# Helper pembersihan nominal Rupiah ke float
 def clean_currency(val):
     if pd.isna(val):
         return 0.0
@@ -159,26 +147,14 @@ def clean_currency(val):
     except:
         return 0.0
 
-# Helper format ke Rupiah string[cite: 1]
+# Helper format ke Rupiah string
 def format_rupiah(val):
     try:
         return f"Rp {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except:
         return "Rp 0,00"
 
-# Helper ekstraksi tanggal dari teks kontrak SIMBADA[cite: 1]
-def extract_date_from_text(text):
-    if not isinstance(text, str):
-        return "-"
-    match_tgl = re.search(r'(\d{1,2}\s+(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\s+\d{4})', text, re.IGNORECASE)
-    if match_tgl:
-        return match_tgl.group(1)
-    match_num = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', text)
-    if match_num:
-        return match_num.group(1)
-    return "-"
-
-# Helper membaca Acuan RAK[cite: 1]
+# Helper membaca Acuan RAK
 def parse_rak_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -192,7 +168,7 @@ def parse_rak_data(file):
     df.columns = [str(c).strip().upper() for c in df.columns]
     return df
 
-# Helper membaca Excel SIMBADA[cite: 1]
+# Helper membaca Excel SIMBADA
 def parse_skpd_data(file):
     df_raw = pd.read_excel(file, header=None) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file, header=None)
     header_idx = 0
@@ -201,9 +177,6 @@ def parse_skpd_data(file):
         if 'RINCIAN PENGADAAN' in row_str or 'PEMERINTAH' in row_str or 'JENIS BELANJA :' in row_str:
             continue
         if ('KODE' in row_str and 'URAIAN' in row_str) or ('PENGADAAN' in row_str and 'ASET' in row_str):
-            header_idx = idx
-            break
-        elif any(k in row_str for k in ['JENIS BELANJA', 'REKENING', 'SEMUA']) and ':' not in row_str:
             header_idx = idx
             break
 
@@ -219,7 +192,7 @@ def parse_skpd_data(file):
     df = df[~mask_total]
     return df
 
-# Helper membaca Excel LRA Multi-Sheet[cite: 1]
+# Helper membaca Excel LRA Multi-Sheet
 def parse_lra_multi_sheet(file, selected_semester):
     if file.name.endswith(('.xlsx', '.xls')):
         xls = pd.ExcelFile(file)
@@ -268,15 +241,6 @@ def parse_lra_multi_sheet(file, selected_semester):
         df_combined = pd.read_csv(file, skiprows=header_idx)
         df_combined.columns = [str(c).strip() for c in df_combined.columns]
 
-    if selected_semester != "Semua Periode (Semester 1 & 2)":
-        col_bulan = [c for c in df_combined.columns if c.lower() in ['bulan', 'periode spd']]
-        if col_bulan:
-            c_b = col_bulan[0]
-            if selected_semester == "Semester 1":
-                df_combined = df_combined[df_combined[c_b].astype(str).str.upper().str.contains('JAN|FEB|MAR|APR|MEI|JUN|1|I')].copy()
-            elif selected_semester == "Semester 2":
-                df_combined = df_combined[df_combined[c_b].astype(str).str.upper().str.contains('JUL|AGU|SEP|OKT|NOP|NOV|DES|2|II')].copy()
-
     return df_combined
 
 # --- SIDEBAR MENU & UPLOAD ---
@@ -305,7 +269,7 @@ if file_rak and file_sipd and file_skpd:
         df_sipd = parse_lra_multi_sheet(file_sipd, selected_semester)
         df_skpd = parse_skpd_data(file_skpd)
 
-        # 1. MAPPING KODE & URAIAN RAK[cite: 1]
+        # 1. MAPPING KODE & URAIAN RAK
         col_kode_rek = [c for c in df_rak.columns if 'KODE' in c and 'REK' in c]
         col_uraian_rek = [c for c in df_rak.columns if 'URAIAN' in c and 'REK' in c]
         col_kode_kat = [c for c in df_rak.columns if 'KODE' in c and 'KAT' in c]
@@ -328,7 +292,7 @@ if file_rak and file_sipd and file_skpd:
 
         norm_acuan_set = {normalize_code(k) for k in valid_raw_codes if len(normalize_code(k)) >= 5}
 
-        # 2. FILTER SKPD TARGET[cite: 1]
+        # 2. FILTER SKPD TARGET
         col_skpd_lra = [c for c in df_sipd.columns if c.strip().lower() in ['nama skpd', 'skpd', 'nama_skpd', 'dinas', 'opd']]
         if not col_skpd_lra:
             col_skpd_lra = [c for c in df_sipd.columns if any(k in c.lower() for k in ['skpd', 'dinas', 'opd'])]
@@ -345,7 +309,7 @@ if file_rak and file_sipd and file_skpd:
                 df_sipd_filtered = df_sipd.copy()
                 selected_skpd_target = "Semua SKPD"
 
-        # 3. IDENTIFIKASI DATA SIMBADA DENGAN VALIDASI RAK[cite: 1]
+        # 3. IDENTIFIKASI DATA SIMBADA DENGAN VALIDASI RAK
         def get_matched_code(row_str):
             row_norm = normalize_code(row_str)
             for raw_c in valid_raw_codes:
@@ -367,7 +331,9 @@ if file_rak and file_sipd and file_skpd:
             first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
             matched = get_matched_code(first_cols_str)
             
-            is_bm_row = (first_val.startswith('5.2') or first_val.startswith('5.3') or 'BELANJA MODAL' in first_cols_str.upper()) and not first_val.startswith('5.0') and '5.1.01' not in first_val
+            # REVISI LOGIKA:
+            # Memperbolehkan kode 5.1/5.2/5.3 masuk jika ada di RAK atau diawali 5.2/5.3
+            is_bm_row = (first_val.startswith('5.2') or first_val.startswith('5.3') or matched is not None or 'BELANJA MODAL' in first_cols_str.upper()) and not first_val.startswith('5.0') and '5.1.01' not in first_val
 
             if matched and is_bm_row:
                 current_matched_rek = matched
@@ -404,7 +370,7 @@ if file_rak and file_sipd and file_skpd:
         
         def is_main_leaf(row):
             first_val = str(row.iloc[0]).strip()
-            return (first_val.startswith('5.2') or first_val.startswith('5.3')) and row['Status RAK'] == "Valid RAK"
+            return (first_val.startswith('5.1') or first_val.startswith('5.2') or first_val.startswith('5.3')) and row['Status RAK'] == "Valid RAK"
 
         # Pemisahan SIMBADA Valid RAK vs Non-RAK
         df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
@@ -412,7 +378,7 @@ if file_rak and file_sipd and file_skpd:
         
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
-        # 4. IDENTIFIKASI DATA REALISASI LRA[cite: 1]
+        # 4. IDENTIFIKASI DATA REALISASI LRA
         def match_sipd_row(row):
             row_str = ' '.join([str(v) for v in row.values if pd.notna(v)])
             if '5.1.01' in row_str or 'GAJI' in row_str.upper() or 'IURAN JAMINAN' in row_str.upper():
@@ -434,7 +400,7 @@ if file_rak and file_sipd and file_skpd:
 
         df_sipd_bm['Nominal Realisasi'] = df_sipd_bm[sipd_target_col].apply(clean_currency)
 
-        # 5. TABEL ANALISIS REKONSILIASI[cite: 1]
+        # 5. TABEL ANALISIS REKONSILIASI
         grp_sipd = df_sipd_bm.groupby('Kode Rekening (Acuan)')['Nominal Realisasi'].sum().rename('Realisasi LRA')
         grp_skpd = df_skpd_main_leaves.groupby('Kode Rekening (Acuan)')['Nominal SKPD'].sum().rename('Entry SIMBADA')
 
@@ -451,13 +417,13 @@ if file_rak and file_sipd and file_skpd:
         df_rekon = df_rekon[['Kode Rekening', 'Uraian Rekening (RAK)', 'Realisasi LRA', 'Entry SIMBADA', 'Selisih', 'Status']]
         df_rekon = df_rekon.sort_values(by='Selisih', key=abs, ascending=False)
 
-        # Total Metrik[cite: 1]
+        # Total Metrik
         total_sipd_bm = df_rekon['Realisasi LRA'].sum()
         total_skpd_bm = df_rekon['Entry SIMBADA'].sum()
         total_selisih = total_sipd_bm - total_skpd_bm
         total_non_rak = df_skpd_non_rak['Nominal SKPD'].sum()
 
-        # === TOP BAR HEADER BUBBLE ===[cite: 1]
+        # === TOP BAR HEADER BUBBLE ===
         st.markdown(f"""
         <div class="app-topbar">
             <div>
@@ -472,7 +438,7 @@ if file_rak and file_sipd and file_skpd:
         </div>
         """, unsafe_allow_html=True)
 
-        # === 4 BUBBLE STAT CARDS ===[cite: 1]
+        # === 4 BUBBLE STAT CARDS ===
         k1, k2, k3, k4 = st.columns(4)
         
         with k1:
@@ -539,7 +505,7 @@ if file_rak and file_sipd and file_skpd:
 
         st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-        # === TAMPILAN TAB UTAMA DENGAN TAB ELIMINASI BARU ===
+        # === TAMPILAN TAB UTAMA ===
         tab_rekon, tab_investigasi, tab_grafik, tab1, tab2, tab_elim = st.tabs([
             "⚖️ Tabel Rekonsiliasi",
             "🔎 Diagnosa & Rincian Selisih",
@@ -549,7 +515,6 @@ if file_rak and file_sipd and file_skpd:
             "🗑️ SIMBADA Dieliminasi (Non-RAK)"
         ])
 
-        # === TAB 1: REKONSILIASI ===[cite: 1]
         with tab_rekon:
             st.markdown(f"#### **Tabel Komparasi Belanja Modal ({selected_semester})**")
             
@@ -590,7 +555,6 @@ if file_rak and file_sipd and file_skpd:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # === TAB 2: DIAGNOSA DETAIL SELISIH ===[cite: 1]
         with tab_investigasi:
             st.markdown(f"#### **Diagnosa Per Kode Rekening yang Berselisih ({selected_semester})**")
             
@@ -677,14 +641,12 @@ if file_rak and file_sipd and file_skpd:
             else:
                 st.success("🎉 Semua Akun Belanja Modal Balance!")
 
-        # === TAB 3: GRAFIK KOMPARASI ===[cite: 1]
         with tab_grafik:
             st.markdown(f"#### **Grafik Perbandingan Anggaran: Realisasi LRA vs SIMBADA ({selected_semester})**")
             df_chart = df_rekon[['Kode Rekening', 'Realisasi LRA', 'Entry SIMBADA']].copy()
             df_chart = df_chart.set_index('Kode Rekening')
             st.bar_chart(df_chart, height=380)
 
-        # === TAB 4: DETAIL REALISASI LRA ===[cite: 1]
         with tab1:
             st.markdown(f"#### **Data Mentah Realisasi LRA Kasda ({len(df_sipd_bm)} Baris - {selected_semester})**")
             cols_sipd_clean = [c for c in df_sipd_bm.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal Realisasi', '__SHEET_SOURCE__']]
@@ -692,7 +654,6 @@ if file_rak and file_sipd and file_skpd:
             df_sipd_view['Nominal Realisasi'] = df_sipd_view['Nominal Realisasi'].apply(format_rupiah)
             st.dataframe(df_sipd_view, use_container_width=True, hide_index=True)
 
-        # === TAB 5: DETAIL SIMBADA ===[cite: 1]
         with tab2:
             st.markdown(f"#### **Data Mentah Entry SIMBADA Terverifikasi ({len(df_skpd_main_leaves)} Rekening Valid RAK)**")
             cols_to_keep = [c for c in df_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Status RAK']]
@@ -700,10 +661,9 @@ if file_rak and file_sipd and file_skpd:
             df_skpd_view['Nominal SKPD'] = df_skpd_view['Nominal SKPD'].apply(format_rupiah)
             st.dataframe(df_skpd_view, use_container_width=True, hide_index=True)
 
-        # === TAB 6: SIMBADA DIELIMINASI (NON-RAK) ===
         with tab_elim:
             st.markdown(f"#### **Daftar Entry SIMBADA Dieliminasi ({len(df_skpd_non_rak)} Item Non-RAK)**")
-            st.caption("Baris di bawah ini merupakan belanja modal SIMBADA (kode 5.2/5.3) yang **tidak terdaftar pada file acuan RAK Belanja Modal**, sehingga diisolasikan dari perhitungan utama rekonsiliasi.")
+            st.caption("Baris di bawah ini merupakan belanja modal SIMBADA yang **tidak terdaftar pada file acuan RAK Belanja Modal**.")
             
             if len(df_skpd_non_rak) > 0:
                 cols_elim_keep = [c for c in df_skpd_non_rak.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Status RAK']]
