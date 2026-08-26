@@ -11,116 +11,56 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# === 3 BUBBLE STAT CARDS ===
+        k1, k2, k3 = st.columns(3)
+        
+        with k1:
+            st.markdown(f"""
+            <div class="bubble-card">
+                <div class="card-top-row">
+                    <span class="card-title-label">Realisasi LRA</span>
+                    <div class="icon-bubble icon-blue">🏛️</div>
+                </div>
+                <div>
+                    <div class="card-val-rp">Rp</div>
+                    <div class="card-val-number">{f"{total_sipd_bm:,.2f}"[0:-3].replace(',', '.')}</div>
+                </div>
+                <span class="pill-badge pill-blue">Kasda: {selected_semester}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Custom CSS Khusus Bubble Card & Header Modern
-st.markdown("""
-<style>
-    .app-topbar {
-        background: #FFFFFF;
-        padding: 16px 24px;
-        border-radius: 16px;
-        box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.05);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-        border: 1px solid #E2E8F0;
-    }
-    .breadcrumb-title {
-        color: #64748B;
-        font-size: 0.85rem;
-        font-weight: 500;
-        margin-bottom: 2px;
-    }
-    .breadcrumb-active {
-        color: #0F172A;
-        font-weight: 800;
-        font-size: 1.25rem;
-    }
+        with k2:
+            st.markdown(f"""
+            <div class="bubble-card">
+                <div class="card-top-row">
+                    <span class="card-title-label">Entry SIMBADA (Aset)</span>
+                    <div class="icon-bubble icon-purple">📋</div>
+                </div>
+                <div>
+                    <div class="card-val-rp">Rp</div>
+                    <div class="card-val-number">{f"{total_skpd_bm:,.2f}"[0:-3].replace(',', '.')}</div>
+                </div>
+                <span class="pill-badge pill-purple">Total Sesuai RAK</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-    .bubble-card {
-        background: #FFFFFF;
-        border-radius: 20px;
-        padding: 20px 22px;
-        box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
-        border: 1px solid #E2E8F0;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-    }
-    .card-top-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-    .card-title-label {
-        font-size: 0.78rem;
-        color: #64748B;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-    .icon-bubble {
-        width: 36px;
-        height: 36px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-    }
-    .icon-blue { background-color: #EFF6FF; }
-    .icon-purple { background-color: #FAF5FF; }
-    .icon-red { background-color: #FEF2F2; }
-    .icon-green { background-color: #F0FDF4; }
+        with k3:
+            st.markdown(f"""
+            <div class="bubble-card">
+                <div class="card-top-row">
+                    <span class="card-title-label">Selisih Rekonsiliasi</span>
+                    <div class="icon-bubble {'icon-green' if abs(total_selisih) < 1 else 'icon-red'}">⚖️</div>
+                </div>
+                <div>
+                    <div class="card-val-rp">Rp</div>
+                    <div class="card-val-number">{f"{total_selisih:,.2f}"[0:-3].replace(',', '.')}</div>
+                </div>
+                <span class="pill-badge {'pill-green' if abs(total_selisih) < 1 else 'pill-red'}">
+                    {'Nol (0) Selisih' if abs(total_selisih) < 1 else 'Perlu Penyesuaian'}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
-    .card-val-rp {
-        font-size: 0.95rem;
-        font-weight: 700;
-        color: #0F172A;
-        margin-bottom: -2px;
-    }
-    .card-val-number {
-        font-size: 1.35rem;
-        font-weight: 800;
-        color: #0F172A;
-        margin-bottom: 12px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .pill-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        width: fit-content;
-    }
-    .pill-blue { background: #DBEAFE; color: #1E40AF; }
-    .pill-purple { background: #F3E8FF; color: #6B21A8; }
-    .pill-red { background: #FEE2E2; color: #991B1B; }
-    .pill-green { background: #DCFCE7; color: #15803D; }
-
-    .action-box-red {
-        background-color: #FEF2F2;
-        border-left: 5px solid #EF4444;
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 16px;
-    }
-    .action-box-blue {
-        background-color: #EFF6FF;
-        border-left: 5px solid #3B82F6;
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 16px;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Helper normalisasi kode
 def normalize_code(val):
