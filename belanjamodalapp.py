@@ -309,7 +309,7 @@ if file_rak and file_sipd and file_skpd:
                 df_sipd_filtered = df_sipd.copy()
                 selected_skpd_target = "Semua SKPD"
 
-        # 3. IDENTIFIKASI DATA SIMBADA DENGAN VALIDASI RAK
+        # 3. IDENTIFIKASI DATA SIMBADA DENGAN FORWARD-FILL KODE REKENING & VALIDASI RAK
         def get_matched_code(row_str):
             row_norm = normalize_code(row_str)
             for raw_c in valid_raw_codes:
@@ -322,40 +322,6 @@ if file_rak and file_sipd and file_skpd:
                     return n_c
             return None
 
-        current_matched_rek = ""
-        skpd_rek_list = []
-        skpd_status_rak = []
-        
-        for idx, row in df_skpd.iterrows():
-            first_val = str(row.iloc[0]).strip()
-            first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
-            matched = get_matched_code(first_cols_str)
-            
-            # REVISI LOGIKA:
-            # Memperbolehkan kode 5.1/5.2/5.3 masuk jika ada di RAK atau diawali 5.2/5.3
-            is_bm_row = (first_val.startswith('5.2') or first_val.startswith('5.3') or matched is not None or 'BELANJA MODAL' in first_cols_str.upper()) and not first_val.startswith('5.0') and '5.1.01' not in first_val
-
-            if matched and is_bm_row:
-                current_matched_rek = matched
-                skpd_rek_list.append(matched)
-                skpd_status_rak.append("Valid RAK")
-                continue
-            elif is_bm_row and not matched:
-                current_matched_rek = first_val
-                skpd_rek_list.append(first_val)
-                skpd_status_rak.append("Non-RAK")
-                continue
-
-            if current_matched_rek and pd.isna(row.iloc[0]) and any(pd.notna(v) for v in row.iloc[1:4]):
-                skpd_rek_list.append(current_matched_rek)
-                skpd_status_rak.append("Valid RAK" if current_matched_rek in valid_raw_codes else "Non-RAK")
-            else:
-                skpd_rek_list.append("")
-                skpd_status_rak.append("Induk / Non-BM")
-
-        df_skpd['Kode Rekening (Acuan)'] = skpd_rek_list
-        df_skpd['Status RAK'] = skpd_status_rak
-
         def get_skpd_nominal(row):
             for col in ['PENGADAAN', 'ASET', 'SEMUA', 'TOTAL', 'JUMLAH', 'NILAI']:
                 for c in df_skpd.columns:
@@ -367,14 +333,51 @@ if file_rak and file_sipd and file_skpd:
             return max(row_vals) if row_vals else 0.0
 
         df_skpd['Nominal SKPD'] = df_skpd.apply(get_skpd_nominal, axis=1)
-        
-        def is_main_leaf(row):
-            first_val = str(row.iloc[0]).strip()
-            return (first_val.startswith('5.1') or first_val.startswith('5.2') or first_val.startswith('5.3')) and row['Status RAK'] == "Valid RAK"
 
-        # Pemisahan SIMBADA Valid RAK vs Non-RAK
-        df_skpd_main_leaves = df_skpd[df_skpd.apply(is_main_leaf, axis=1)].copy()
-        df_skpd_non_rak = df_skpd[df_skpd['Status RAK'] == "Non-RAK"].copy()
+        current_kode_belanja = ""
+        current_status_belanja = "Non-RAK"
+        
+        skpd_rek_list = []
+        skpd_status_rak = []
+        is_transaction_row_list = []
+        
+        for idx, row in df_skpd.iterrows():
+            first_val = str(row.iloc[0]).strip()
+            first_cols_str = ' '.join([str(v) for v in row.iloc[:3].values if pd.notna(v)])
+            matched = get_matched_code(first_cols_str)
+            
+            # Cek apakah baris ini merupakan Header Rekening Belanja Utama (diawali 5.1/5.2/5.3)
+            is_header_belanja = (first_val.startswith('5.1') or first_val.startswith('5.2') or first_val.startswith('5.3')) and not first_val.startswith('5.0') and '5.1.01' not in first_val
+
+            if is_header_belanja:
+                current_kode_belanja = matched if matched else first_val
+                # Kode dianggap Valid RAK jika matched ADA atau kodenya terdaftar di RAK
+                if matched or current_kode_belanja in valid_raw_codes or normalize_code(current_kode_belanja) in norm_acuan_set:
+                    current_status_belanja = "Valid RAK"
+                else:
+                    current_status_belanja = "Non-RAK"
+                
+                skpd_rek_list.append(current_kode_belanja)
+                skpd_status_rak.append(current_status_belanja)
+                is_transaction_row_list.append(False)
+            else:
+                # Jika baris ini rincian transaksi (Punya Nominal ASET > 0)
+                if row['Nominal SKPD'] > 0:
+                    skpd_rek_list.append(current_kode_belanja)
+                    skpd_status_rak.append(current_status_belanja)
+                    is_transaction_row_list.append(True)
+                else:
+                    skpd_rek_list.append(current_kode_belanja)
+                    skpd_status_rak.append("Induk / Non-BM")
+                    is_transaction_row_list.append(False)
+
+        df_skpd['Kode Rekening (Acuan)'] = skpd_rek_list
+        df_skpd['Status RAK'] = skpd_status_rak
+        df_skpd['Is Transaction'] = is_transaction_row_list
+
+        # Pemisahan SIMBADA Valid RAK vs Non-RAK (Berdasarkan Transaksi)
+        df_skpd_main_leaves = df_skpd[(df_skpd['Is Transaction'] == True) & (df_skpd['Status RAK'] == "Valid RAK")].copy()
+        df_skpd_non_rak = df_skpd[(df_skpd['Is Transaction'] == True) & (df_skpd['Status RAK'] == "Non-RAK")].copy()
         
         active_skpd_codes = set(df_skpd_main_leaves['Kode Rekening (Acuan)'].unique())
 
@@ -593,20 +596,16 @@ if file_rak and file_sipd and file_skpd:
                     """, unsafe_allow_html=True)
 
                 df_sipd_target = df_sipd_bm[df_sipd_bm['Kode Rekening (Acuan)'] == selected_code_target].copy()
-                df_skpd_target = df_skpd[df_skpd['Kode Rekening (Acuan)'] == selected_code_target].copy()
-                
-                df_skpd_rincian = df_skpd_target[~df_skpd_target.apply(is_main_leaf, axis=1)].copy()
-                if len(df_skpd_rincian) == 0:
-                    df_skpd_rincian = df_skpd_target.copy()
+                df_skpd_target = df_skpd_main_leaves[df_skpd_main_leaves['Kode Rekening (Acuan)'] == selected_code_target].copy()
 
                 sipd_nominals = df_sipd_target['Nominal Realisasi'].tolist()
-                skpd_nominals = df_skpd_rincian['Nominal SKPD'].tolist()
+                skpd_nominals = df_skpd_target['Nominal SKPD'].tolist()
 
                 sipd_counts = pd.Series(sipd_nominals).value_counts().to_dict()
                 skpd_counts = pd.Series(skpd_nominals).value_counts().to_dict()
 
                 unmatched_skpd = []
-                for _, r in df_skpd_rincian.iterrows():
+                for _, r in df_skpd_target.iterrows():
                     nom = r['Nominal SKPD']
                     if nom > 0 and (nom not in sipd_counts or skpd_counts.get(nom, 0) > sipd_counts.get(nom, 0)):
                         unmatched_skpd.append(r)
@@ -655,18 +654,18 @@ if file_rak and file_sipd and file_skpd:
             st.dataframe(df_sipd_view, use_container_width=True, hide_index=True)
 
         with tab2:
-            st.markdown(f"#### **Data Mentah Entry SIMBADA Terverifikasi ({len(df_skpd_main_leaves)} Rekening Valid RAK)**")
-            cols_to_keep = [c for c in df_skpd.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Status RAK']]
-            df_skpd_view = df_skpd[df_skpd['Status RAK'] == "Valid RAK"][['Kode Rekening (Acuan)'] + cols_to_keep + ['Nominal SKPD']].copy()
+            st.markdown(f"#### **Data Mentah Entry SIMBADA Terverifikasi ({len(df_skpd_main_leaves)} Transaksi Valid RAK)**")
+            cols_to_keep = [c for c in df_skpd_main_leaves.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Nominal SKPD', 'Status RAK', 'Is Transaction']]
+            df_skpd_view = df_skpd_main_leaves[['Kode Rekening (Acuan)'] + cols_to_keep + ['Nominal SKPD']].copy()
             df_skpd_view['Nominal SKPD'] = df_skpd_view['Nominal SKPD'].apply(format_rupiah)
             st.dataframe(df_skpd_view, use_container_width=True, hide_index=True)
 
         with tab_elim:
             st.markdown(f"#### **Daftar Entry SIMBADA Dieliminasi ({len(df_skpd_non_rak)} Item Non-RAK)**")
-            st.caption("Baris di bawah ini merupakan belanja modal SIMBADA yang **tidak terdaftar pada file acuan RAK Belanja Modal**.")
+            st.caption("Baris di bawah ini merupakan belanja modal SIMBADA yang **Kode Rekening Pengampunya tidak terdaftar pada file acuan RAK Belanja Modal** (Salah Kode Rekening).")
             
             if len(df_skpd_non_rak) > 0:
-                cols_elim_keep = [c for c in df_skpd_non_rak.columns if not str(c).startswith('Unnamed') and c not in ['Kode Rekening (Acuan)', 'Status RAK']]
+                cols_elim_keep = [c for c in df_skpd_non_rak.columns if not str(c).startswith('Unnamed') and c not in ['Status RAK', 'Is Transaction']]
                 df_elim_view = df_skpd_non_rak[cols_elim_keep].copy()
                 df_elim_view['Nominal SKPD'] = df_elim_view['Nominal SKPD'].apply(format_rupiah)
                 st.dataframe(df_elim_view, use_container_width=True, hide_index=True)
